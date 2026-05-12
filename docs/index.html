@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Subscription-Backed LLM Proxy — Design Doc</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fafaf7;
+    --fg: #1c1c1c;
+    --muted: #6b6b6b;
+    --card: #ffffff;
+    --border: #e3e3df;
+    --accent: #b9531a;
+    --code-bg: #f0eee8;
+    --risk-low: #cfead0;
+    --risk-med: #ffeec6;
+    --risk-high: #ffd1cc;
+    --risk-crit: #ffb3ad;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131313;
+      --fg: #e7e7e3;
+      --muted: #9a9a93;
+      --card: #1c1c1c;
+      --border: #2c2c2a;
+      --accent: #ff8a4c;
+      --code-bg: #0f0f0e;
+      --risk-low: #2a4a2c;
+      --risk-med: #574a22;
+      --risk-high: #5e2a26;
+      --risk-crit: #7a2a25;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans TC", sans-serif; }
+  .wrap { display: grid; grid-template-columns: 220px minmax(0,1fr); max-width: 1100px; margin: 0 auto; min-height: 100vh; }
+  nav.toc {
+    position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto;
+    padding: 24px 12px 24px 20px; border-right: 1px solid var(--border);
+  }
+  nav.toc h1 { font-size: 14px; margin: 0 0 10px; color: var(--muted); letter-spacing: .05em; text-transform: uppercase; }
+  nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: sec; }
+  nav.toc li { counter-increment: sec; margin: 2px 0; }
+  nav.toc li a { display: block; padding: 6px 8px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+  nav.toc li a::before { content: counter(sec) ". "; color: var(--muted); }
+  nav.toc li a:hover, nav.toc li a.active { background: var(--code-bg); color: var(--accent); }
+  main { padding: 36px 36px 80px; min-width: 0; }
+  header.hero { margin-bottom: 36px; }
+  header.hero h1 { font-size: 28px; margin: 0 0 6px; }
+  header.hero p.lede { color: var(--muted); margin: 0; font-size: 16px; }
+  section { padding-top: 32px; border-top: 1px solid var(--border); margin-top: 32px; scroll-margin-top: 12px; }
+  section:first-of-type { border-top: none; margin-top: 0; padding-top: 0; }
+  section h2 { font-size: 22px; margin: 0 0 14px; }
+  section h3 { font-size: 16px; margin: 22px 0 8px; }
+  p, li { margin: .5em 0; }
+  ul { padding-left: 22px; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; position: relative; border: 1px solid var(--border); }
+  pre .copy {
+    position: absolute; top: 8px; right: 8px; padding: 3px 8px; font-size: 11px;
+    border: 1px solid var(--border); background: var(--card); color: var(--muted); border-radius: 4px; cursor: pointer;
+  }
+  pre .copy:hover { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid var(--border); padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .card h3 { margin-top: 0; }
+  .card .pro { color: #4d8a4c; }
+  .card .con { color: #c1654e; }
+  @media (prefers-color-scheme: dark) {
+    .card .pro { color: #8ad58a; }
+    .card .con { color: #ff998a; }
+  }
+  td[data-risk="low"] { background: var(--risk-low); }
+  td[data-risk="med"] { background: var(--risk-med); }
+  td[data-risk="high"] { background: var(--risk-high); }
+  td[data-risk="crit"] { background: var(--risk-crit); }
+  .mermaid { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; overflow-x: auto; }
+  details { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 8px 0; }
+  details > summary { cursor: pointer; font-weight: 600; }
+  .note { background: var(--code-bg); border-left: 3px solid var(--accent); padding: 10px 14px; border-radius: 4px; margin: 12px 0; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--code-bg); color: var(--muted); margin-right: 4px; }
+  @media (max-width: 720px) {
+    .wrap { grid-template-columns: 1fr; }
+    nav.toc { position: static; max-height: none; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 24px 18px 60px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="toc" aria-label="Table of contents">
+    <h1>Sections</h1>
+    <ol>
+      <li><a href="#problem">Problem &amp; Motivation</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#comparison">Backend Comparison</a></li>
+      <li><a href="#risk">Risk Matrix</a></li>
+      <li><a href="#patterns">Integration Patterns</a></li>
+      <li><a href="#decision">Decision Flow</a></li>
+      <li><a href="#walkthrough">PoC Walkthrough</a></li>
+      <li><a href="#future">Out of scope / Future</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero">
+      <h1>Subscription-Backed LLM Proxy</h1>
+      <p class="lede">
+        Use a paid <b>Claude Code</b> (or Gemini Web) subscription as the LLM
+        backend for your own apps — without buying a separate API key. Local
+        proxy, OpenAI-shape API, single user.
+      </p>
+    </header>
+
+    <section id="problem">
+      <h2>1. Problem &amp; Motivation</h2>
+      <p>
+        Anthropic and Google sell two things under one brand:
+      </p>
+      <ul>
+        <li><b>Subscriptions</b> (Claude Code, Gemini Advanced) — flat monthly fee,
+          unlimited-ish conversational use through the official UI/CLI, tied to
+          a single logged-in user.</li>
+        <li><b>API quota</b> (Anthropic API, Gemini API) — pay-per-token, separately
+          billed, the only thing officially blessed for embedding into your own
+          applications.</li>
+      </ul>
+      <p>
+        If you already pay for the subscription, the marginal cost of one more
+        prompt is <i>zero</i>. Buying API quota on top of it to power a personal
+        side project feels like paying twice. This doc is about closing that gap
+        — letting your app spend the subscription's daily/5-hour budget instead.
+      </p>
+      <div class="note">
+        <b>Scope.</b> Personal-use, single-user, <code>127.0.0.1</code> only.
+        This is not a SaaS multiplexer — that <i>would</i> violate the per-user
+        license of every consumer subscription on the planet.
+      </div>
+    </section>
+
+    <section id="architecture">
+      <h2>2. Architecture</h2>
+      <p>
+        A local FastAPI proxy speaks OpenAI's <code>/v1/chat/completions</code>
+        shape, and an adapter layer translates each request into a
+        <code>claude -p --output-format json</code> subprocess call. Batch jobs
+        land in a SQLite queue and a worker drains them one at a time, respecting
+        the 5-hour rolling rate limit.
+      </p>
+      <div class="mermaid">
+graph LR
+  app["Your App<br/>(any OpenAI client)"] -->|HTTP| svr["FastAPI proxy<br/>poc/server.py"]
+  svr -->|sync| reg["Adapter Registry"]
+  reg --> cc["ClaudeCodeAdapter"]
+  reg --> gw["GeminiWebAdapter<br/>(stub)"]
+  cc -->|asyncio.subprocess| cli["claude -p --output-format json"]
+  cli -->|JSON| cc
+  svr -->|/v1/batches| q[("SQLite jobs<br/>poc/data/jobs.db")]
+  w["Worker<br/>poc/queue/worker.py"] -->|claim_next| q
+  w --> cc
+  cli -->|OAuth| sub["Claude Code subscription"]
+      </div>
+      <h3>Why two processes?</h3>
+      <ul>
+        <li>Server stays responsive for interactive calls even when a batch is in flight.</li>
+        <li>Worker can sleep on rate-limit backoff without freezing the API.</li>
+        <li>SQLite (WAL) keeps the moving parts honest — restart either side without losing jobs.</li>
+      </ul>
+      <h3>Why subprocess instead of an SDK?</h3>
+      <p>
+        Anthropic publishes <code>@anthropic-ai/sdk</code> and <code>anthropic</code>
+        (Python) — but those require a separate API key. Claude Code's
+        subscription auth lives in the local OAuth keychain and is consumed by
+        the <code>claude</code> binary itself. The supported way to leverage it
+        programmatically today is to shell out.
+      </p>
+    </section>
+
+    <section id="comparison">
+      <h2>3. Backend Comparison</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Backend</th>
+            <th>Auth</th>
+            <th>Cost per call (you)</th>
+            <th>Throughput</th>
+            <th>Stability</th>
+            <th>ToS posture</th>
+            <th>Models</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Claude Code CLI</b> <span class="pill">primary</span></td>
+            <td>OAuth keychain</td>
+            <td>$0 marginal (counts against 5-hour limit)</td>
+            <td>~tens/hr, 5-hr rolling cap</td>
+            <td>★★★★☆ — official non-interactive mode</td>
+            <td>OK for personal app; not for resale</td>
+            <td>Haiku / Sonnet / Opus</td>
+          </tr>
+          <tr>
+            <td>Gemini Web (Playwright)</td>
+            <td>Browser cookies</td>
+            <td>$0 marginal</td>
+            <td>Slow, headed browser</td>
+            <td>★★☆☆☆ — breaks on UI changes</td>
+            <td>Grey — automation of consumer UI</td>
+            <td>Whatever's served in the web UI</td>
+          </tr>
+          <tr>
+            <td>Gemini Web (cookie reverse API)</td>
+            <td>Stolen cookies</td>
+            <td>$0 marginal</td>
+            <td>Faster than Playwright</td>
+            <td>★☆☆☆☆ — internal endpoints shift</td>
+            <td>Grey — reverse-engineered</td>
+            <td>Same as above</td>
+          </tr>
+          <tr>
+            <td>Official Anthropic API</td>
+            <td>API key</td>
+            <td>$$ per-token billing</td>
+            <td>High</td>
+            <td>★★★★★</td>
+            <td>Fully sanctioned</td>
+            <td>Full Anthropic catalog</td>
+          </tr>
+          <tr>
+            <td>Official Gemini API</td>
+            <td>API key</td>
+            <td>$$ per-token billing</td>
+            <td>High</td>
+            <td>★★★★★</td>
+            <td>Fully sanctioned</td>
+            <td>Full Gemini catalog</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="risk">
+      <h2>4. Risk Matrix</h2>
+      <p>Color = severity. Hover/tap cells for the reasoning.</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Backend</th>
+            <th>ToS</th>
+            <th>Rate limits</th>
+            <th>Brittleness</th>
+            <th>Auth fragility</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Claude Code CLI</td>
+            <td data-risk="low" title="--print is an official non-interactive mode; only multi-tenant resale would breach personal terms.">Low</td>
+            <td data-risk="med" title="5-hour rolling cap; surfaced as HTTP 429 + Retry-After.">Medium</td>
+            <td data-risk="low" title="Versioned CLI flags; stable across patch releases.">Low</td>
+            <td data-risk="low" title="OAuth token in keychain; refresh handled by the CLI itself.">Low</td>
+          </tr>
+          <tr>
+            <td>Gemini Web (Playwright)</td>
+            <td data-risk="high" title="Browser automation of consumer UI is not blessed; case-by-case enforcement.">High</td>
+            <td data-risk="med" title="Soft limits + CAPTCHA on rapid use.">Medium</td>
+            <td data-risk="crit" title="Selectors break with every UI revamp.">Critical</td>
+            <td data-risk="high" title="Login cookies expire; re-auth needs headed browser.">High</td>
+          </tr>
+          <tr>
+            <td>Gemini Web (cookie reverse)</td>
+            <td data-risk="high" title="Same as Playwright + violates anti-circumvention if endpoints are non-public.">High</td>
+            <td data-risk="high" title="Aggressive throttling on non-browser UA.">High</td>
+            <td data-risk="crit" title="Internal RPC schema changes silently.">Critical</td>
+            <td data-risk="crit" title="SAPISIDHASH / __Secure cookies rotate often.">Critical</td>
+          </tr>
+          <tr>
+            <td>Official APIs</td>
+            <td data-risk="low">Low</td>
+            <td data-risk="low" title="Documented per-key quotas.">Low</td>
+            <td data-risk="low">Low</td>
+            <td data-risk="low" title="Static API key.">Low</td>
+          </tr>
+        </tbody>
+      </table>
+      <details>
+        <summary>Why <code>claude -p</code> isn't a ToS landmine the way Gemini-Web is</summary>
+        <p>
+          Anthropic ships <code>--print</code>, <code>--output-format json</code>,
+          <code>--session-id</code> and <code>--disallowedTools</code> as
+          first-class flags and documents them in <code>claude --help</code>.
+          Running the CLI from a subprocess is mechanically identical to a user
+          typing in a terminal. What <i>would</i> breach the license is
+          re-selling the resulting capacity (multi-tenant SaaS, shared API key
+          for a team without per-seat purchase, etc.). This PoC binds to
+          loopback and ships with no auth on purpose.
+        </p>
+      </details>
+    </section>
+
+    <section id="patterns">
+      <h2>5. Integration Patterns</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>A. Subprocess CLI</h3>
+          <p class="pro">+ Official, supported, stable flags.</p>
+          <p class="pro">+ Auth is free — inherits OAuth from the user's machine.</p>
+          <p class="pro">+ Easy to sandbox tools with <code>--disallowedTools</code>.</p>
+          <p class="con">− One process per call (~80&nbsp;ms overhead).</p>
+          <p class="con">− Streaming requires <code>stream-json</code> + reshaping.</p>
+        </div>
+        <div class="card">
+          <h3>B. Browser automation</h3>
+          <p class="pro">+ Works for Gemini Web / ChatGPT / Claude.ai equally.</p>
+          <p class="pro">+ Visual debugging via headed mode.</p>
+          <p class="con">− Selectors rot with every UI release.</p>
+          <p class="con">− CAPTCHA + bot-detection eventually triggers.</p>
+          <p class="con">− Slow (seconds per call, browser warmup).</p>
+        </div>
+        <div class="card">
+          <h3>C. Reverse REST</h3>
+          <p class="pro">+ Faster than headed browser; close to API latency.</p>
+          <p class="pro">+ Easy to multiplex calls.</p>
+          <p class="con">− Internal endpoints break silently.</p>
+          <p class="con">− Cookie/SAPISID rotation is annoying.</p>
+          <p class="con">− Most clearly ToS-adjacent.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="decision">
+      <h2>6. Decision Flow</h2>
+      <div class="mermaid">
+flowchart TD
+  start([Need to call an LLM from your app]) --> sub{Already paying for<br/>a Claude / Gemini sub?}
+  sub -- no --> api[Use the official API<br/>with a billed key]
+  sub -- yes --> which{Which sub?}
+  which -- Claude Code --> latency{Per-call latency tolerance?}
+  which -- Gemini only --> grey{Comfortable with<br/>grey-area ToS?}
+  latency -- < 200 ms needed --> api
+  latency -- "a few seconds OK" --> cli[claude -p subprocess<br/>this PoC]
+  grey -- no --> api
+  grey -- yes --> auto[Playwright or<br/>reverse-API adapter<br/>future work]
+  cli --> done([Ship it])
+  auto --> done
+  api --> done
+      </div>
+    </section>
+
+    <section id="walkthrough">
+      <h2>7. PoC Walkthrough</h2>
+      <p>Three copy-pasteable cURLs against the proxy on <code>127.0.0.1:8765</code>.</p>
+
+      <h3>Sync call</h3>
+      <pre><button class="copy">copy</button><code>curl -s http://127.0.0.1:8765/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -d '{
+    "model": "haiku",
+    "messages": [
+      {"role": "user", "content": "Reply with the single word PONG"}
+    ]
+  }' | jq</code></pre>
+
+      <h3>Multi-turn (session resumed via <code>--resume</code>)</h3>
+      <pre><button class="copy">copy</button><code>curl -s http://127.0.0.1:8765/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'X-Conversation-Id: my-convo-42' \
+  -d '{
+    "model": "sonnet",
+    "messages": [{"role":"user","content":"Remember the codeword: cherry"}]
+  }'
+
+# later, same X-Conversation-Id reuses the underlying --session-id
+curl -s http://127.0.0.1:8765/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'X-Conversation-Id: my-convo-42' \
+  -d '{
+    "model": "sonnet",
+    "messages": [{"role":"user","content":"What was the codeword?"}]
+  }'</code></pre>
+
+      <h3>Batch submit + poll</h3>
+      <pre><button class="copy">copy</button><code>BID=$(curl -s http://127.0.0.1:8765/v1/batches \
+  -H 'content-type: application/json' \
+  -d '{"requests":[
+    {"model":"haiku","messages":[{"role":"user","content":"Summarize: tcp/ip"}]},
+    {"model":"haiku","messages":[{"role":"user","content":"Summarize: http/2"}]},
+    {"model":"haiku","messages":[{"role":"user","content":"Summarize: quic"}]}
+  ]}' | jq -r .id)
+
+# in another shell:  ./run.sh worker
+curl -s http://127.0.0.1:8765/v1/batches/$BID | jq</code></pre>
+
+      <h3>End-to-end smoke test (no real quota)</h3>
+      <pre><button class="copy">copy</button><code>./run.sh setup
+./run.sh test          # uses POC_FAKE_BACKEND=1 by default
+POC_FAKE_BACKEND=0 ./run.sh test   # exercise the real CLI</code></pre>
+    </section>
+
+    <section id="future">
+      <h2>8. Out of scope / Future</h2>
+      <ul>
+        <li><b>Real Gemini Web adapter</b> — Playwright cookie capture, headed first-run, CAPTCHA handling. Acceptable for personal use with eyes open.</li>
+        <li><b>SSE streaming</b> — wrap <code>--output-format stream-json --verbose</code> into OpenAI <code>data: {...}</code> frames.</li>
+        <li><b>Tool / function calling</b> — translate OpenAI <code>tools[]</code> into Claude tool use; right now <code>--disallowedTools</code> turns them all off.</li>
+        <li><b>Persistent conversation map</b> — currently in-memory; restart drops the <code>convo → session_id</code> table.</li>
+        <li><b>Cost ledger</b> — beyond pass-through of <code>--max-budget-usd</code>.</li>
+        <li><b>Multi-user auth</b> — explicitly never. The personal license forbids it; if you need it, buy the API.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default' });
+
+  // Copy buttons
+  document.querySelectorAll('pre .copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const code = btn.parentElement.querySelector('code').innerText;
+      navigator.clipboard?.writeText(code).then(() => {
+        const orig = btn.textContent;
+        btn.textContent = 'copied';
+        setTimeout(() => (btn.textContent = orig), 1200);
+      });
+    });
+  });
+
+  // Scrollspy
+  const links = document.querySelectorAll('nav.toc a');
+  const sections = [...document.querySelectorAll('main section')];
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        const id = e.target.id;
+        links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-30% 0px -65% 0px' });
+  sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>
