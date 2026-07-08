@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
+  <meta name="description" content="隨身口譯：以 Gemini Live 驅動的即時語音翻譯 PWA — 雙向對話、聆聽字幕、會議翻譯。" />
+  <title>隨身口譯</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./css/app.css" />
+</head>
+<body class="layout-dashboard" data-mode="conversation">
+
+  <header id="topbar">
+    <div class="brand"><span class="logo"></span>隨身口譯</div>
+    <nav id="mode-tabs" aria-label="模式">
+      <button class="tab active" data-mode="conversation">對話</button>
+      <button class="tab" data-mode="listen">聆聽</button>
+      <button class="tab" data-mode="speak">我說</button>
+      <button class="tab" data-mode="meeting">會議</button>
+    </nav>
+    <div class="top-actions">
+      <button id="usage-chip" class="chip" title="今日音訊用量（點設定可調警示門檻）">今日 0 秒</button>
+      <button id="layout-btn" class="icon-btn" title="切換沉浸式／儀表板版面">⧉</button>
+      <button id="install-btn" class="icon-btn hidden" title="安裝為桌面／手機 App">⤓</button>
+      <button id="settings-btn" class="icon-btn" title="設定">⚙</button>
+    </div>
+  </header>
+
+  <main id="stage">
+    <!-- 雙向對話：上=對方（可翻轉面向對方），下=我 -->
+    <section id="view-conversation" class="view">
+      <div class="convo-panel theirs" id="panel-theirs">
+        <div class="panel-tag" id="theirs-tag">對方</div>
+        <div class="sub-history"></div>
+        <div class="live-line">
+          <div class="live-src" data-placeholder=""></div>
+          <div class="live-dst"></div>
+        </div>
+      </div>
+      <div class="convo-middle">
+        <button id="swap-btn" class="swap-btn" title="切換翻譯方向">⇄</button>
+        <div id="direction-label" class="direction-label"></div>
+        <label class="mini-toggle" title="開啟後同時建立兩條翻譯連線，自動判斷說話方向（輸入音訊雙倍計量）">
+          <input type="checkbox" id="auto-duplex" /> 自動雙向
+        </label>
+      </div>
+      <div class="convo-panel mine" id="panel-mine">
+        <div class="panel-tag" id="mine-tag">我</div>
+        <div class="sub-history"></div>
+        <div class="live-line">
+          <div class="live-src"></div>
+          <div class="live-dst"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 聆聽 / 我說 / 會議：單一字幕流 -->
+    <section id="view-stream" class="view hidden">
+      <p id="stream-hint" class="hint"></p>
+      <div class="stream-panel" id="panel-stream">
+        <div class="sub-history"></div>
+        <div class="live-line">
+          <div class="live-src"></div>
+          <div class="live-dst"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="standby-overlay" class="hidden">
+    <div class="standby-card">⏸ 待機中（靜音自動斷線，省額度）<br /><small>說話或點一下即可喚醒</small></div>
+  </div>
+
+  <footer id="controls">
+    <div id="status-line">
+      <span id="status-dot" class="dot" data-state="idle"></span>
+      <span id="status-text">未開始</span>
+      <span id="detected-lang"></span>
+      <span id="vad-dot" class="dot vad" title="人聲偵測"></span>
+      <span id="session-timer"></span>
+    </div>
+    <div class="control-row">
+      <div class="lang-pair">
+        <label>我<select id="my-lang"></select></label>
+        <span class="pair-arrow">⇄</span>
+        <label>對方<select id="their-lang"></select></label>
+      </div>
+      <button id="main-btn" class="main-btn">開始</button>
+      <div class="right-controls">
+        <button id="voice-btn" class="icon-btn" title="語音輸出：開">🔊</button>
+        <button id="flip-btn" class="icon-btn hidden" title="翻轉畫面面向對方">🔃</button>
+        <button id="transcript-btn" class="icon-btn" title="逐字稿與匯出">☰</button>
+      </div>
+    </div>
+  </footer>
+
+  <dialog id="settings-dialog">
+    <h2>設定</h2>
+    <div id="set-welcome" class="welcome hidden">
+      <p><strong>歡迎使用隨身口譯 👋</strong></p>
+      <p>這是一個純前端 app：你的 Gemini API key 只會存在這台裝置的瀏覽器裡，直連 Google，不經過任何第三方伺服器。</p>
+      <p>還沒有 key？到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請（有免費額度），或先按下面的按鈕試玩。</p>
+      <button id="set-demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
+    </div>
+
+    <label class="field">Gemini API key
+      <input type="password" id="set-api-key" placeholder="AIza..." autocomplete="off" />
+      <small>申請：<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
+    </label>
+
+    <label class="field">翻譯引擎
+      <select id="set-engine"></select>
+      <small>預設引擎輸出自然語音（同步口譯）；省額度引擎僅輸出字幕、回合制。</small>
+    </label>
+
+    <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不連網、不耗額度）</label>
+
+    <h3>省額度</h3>
+    <label class="field checkbox"><input type="checkbox" id="set-vad" /> 靜音時停止傳送音訊（本地人聲偵測）</label>
+    <label class="field">人聲偵測靈敏度
+      <input type="range" id="set-vad-threshold" min="0.004" max="0.05" step="0.002" />
+      <small>環境吵雜往右調（較不敏感）；漏字幕往左調。</small>
+    </label>
+    <label class="field">靜音幾分鐘後自動待機
+      <input type="number" id="set-idle" min="0" step="0.5" />
+      <small>0 = 不自動待機。待機中說話即自動喚醒。</small>
+    </label>
+    <label class="field">每日用量警示（分鐘）
+      <input type="number" id="set-budget" min="0" step="5" />
+    </label>
+
+    <h3>外觀</h3>
+    <label class="field">版面
+      <select id="set-layout">
+        <option value="auto">自動（手機沉浸式、桌機儀表板）</option>
+        <option value="immersive">沉浸式字幕機</option>
+        <option value="dashboard">工具儀表板</option>
+      </select>
+    </label>
+    <label class="field">字幕字級
+      <input type="range" id="set-font" min="0.8" max="1.8" step="0.1" />
+    </label>
+
+    <h3>資料</h3>
+    <button id="set-clear-transcript" class="danger">清除所有逐字稿</button>
+
+    <div class="dialog-actions">
+      <button id="settings-close">取消</button>
+      <button id="settings-save" class="primary">儲存</button>
+    </div>
+  </dialog>
+
+  <dialog id="transcript-dialog">
+    <h2>逐字稿（僅存本機）</h2>
+    <div id="transcript-list"></div>
+    <div class="dialog-actions">
+      <button id="export-txt">匯出 .txt</button>
+      <button id="export-srt">匯出 .srt</button>
+      <button id="transcript-close" class="primary">關閉</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="hidden"></div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

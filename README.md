@@ -1,3 +1,14 @@
+# Brainstorming
+
+這個 repo 收錄多個獨立的點子與可跑的原型：
+
+| 專案 | 說明 |
+|---|---|
+| [`translator/`](translator/) | **隨身口譯** — Gemini Live 即時語音翻譯 PWA（雙向對話、聆聽字幕、會議翻譯，可安裝為桌面/手機 app）。見 [translator/README.md](translator/README.md)。 |
+| `docs/` + `poc/` | Subscription-Backed LLM Proxy（下方原有內容）。 |
+
+---
+
 # Subscription-Backed LLM Proxy
 
 A working idea + working code for **using a paid Claude Code subscription as the
