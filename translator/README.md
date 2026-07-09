@@ -35,13 +35,16 @@
 
 ## 部署到 GitHub Pages
 
-1. 把這個分支 merge 進 `main`。
-2. Repo → Settings → Pages → Source 選 `Deploy from a branch`，
-   Branch 選 `main`、資料夾 `/ (root)`。
-3. 網址：`https://<你的帳號>.github.io/brainstorming/translator/`。
-   （manifest 的 `start_url`/`scope` 都是相對路徑，放在任何子路徑都能裝。）
+repo 已含 `.github/workflows/pages.yml`：push 到部署分支（或手動 Run workflow）就會
+自動啟用 Pages 並把 `translator/` 發布成站台根目錄，網址
+`https://<你的帳號>.github.io/brainstorming/`。
 
+注意：**免費方案的 GitHub Pages 只支援公開 repo**。若 repo 是私人的，先到
+Settings → General → Danger Zone → Change visibility 改為 Public，再重跑 workflow。
 repo 公開沒有安全疑慮：頁面本身不含任何 key，別人打開也用不了你的額度。
+
+也可部署到 Vercel（repo 已含 `vercel.json`，`outputDirectory` 指向 `translator/`），
+私人 repo 亦可。
 
 ## 省額度設計
 
