@@ -97,6 +97,18 @@ try {
   );
   check('對話模式：原文出現在我的面板', true);
 
+  // 共用 context 不變式：收音與口譯播放必須是同一個 AudioContext（iOS 修正核心）
+  const shared = await page.evaluate(() => {
+    const p = window.__translator?.pipeline;
+    if (!p || !p.audioCtx) return { ok: false, reason: 'no audioCtx' };
+    return {
+      ok: p.playback.ctx === p.audioCtx && p.capture?.ctx === p.audioCtx,
+      state: p.audioCtx.state,
+    };
+  });
+  check('收音與播放共用同一 AudioContext', shared.ok, `state=${shared.state}`);
+  check('共用 context 為 running', shared.state === 'running', shared.state);
+
   // 停止 → 切聆聽模式 → 再開始
   await page.click('#main-btn');
   await page.click('[data-mode="listen"]');

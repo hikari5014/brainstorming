@@ -508,6 +508,8 @@ function boot() {
   setMode(settings.lastMode && MODES[settings.lastMode] ? settings.lastMode : 'conversation');
   renderStatus();
   if (!settings.apiKey && !settings.demoMode) openSettings(true);
+  // 除錯/測試用把手：檢視共用 context 等內部狀態
+  window.__translator = { pipeline, videoSource, get state() { return state; } };
 }
 
 boot();

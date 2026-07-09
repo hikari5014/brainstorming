@@ -1,24 +1,22 @@
 // 音訊來源擷取：麥克風、分頁/系統音訊（會議模式）、或 app 內播放的媒體元素（影片模式），
 // 經 AudioWorklet 輸出 16kHz PCM16 chunks（onChunk({int16, rms})）。
 //
+// context 由 pipeline 傳入並與口譯播放共用（iOS 上單一 context 才穩定，見 playback.js）。
+// capture 不建立、也不關閉 context —— 生命週期由 pipeline 管理。
+//
 // processing:
 //   'voice' — 對話/我說：開回音消除+降噪（避免收到自己播的口譯聲）
-//   'raw'   — 聆聽/會議：全關。AEC 會把「同一台裝置播放的影片聲音」當回音消掉，
-//             這正是聆聽模式聽不到裝置播放內容的主因。
+//   'raw'   — 聆聽/會議/影片：全關。AEC 會把「同一台裝置播放的聲音」當回音消掉。
 //
-// source:
-//   'mic' | 'display' | { node, context, duckGain }  （影片模式傳入現成的音訊圖）
-//
-// 會議模式（display）：要求 suppressLocalAudioPlayback —— 讓被擷取的分頁本身靜音，
-// 改由我們代播（經 duckGain），口譯說話時就能自動壓低影片音量。
+// source:  'mic' | 'display' | { node, context, duckGain }（影片模式傳入現成的音訊圖）
 
 export class AudioCapture {
-  constructor({ source = 'mic', processing = 'voice', onChunk, onEnded }) {
+  constructor({ source = 'mic', processing = 'voice', context, onChunk, onEnded }) {
     this.source = source;
     this.processing = processing;
+    this.ctx = context; // 一律由 pipeline 提供
     this.onChunk = onChunk;
     this.onEnded = onEnded;
-    this.ctx = null;
     this.stream = null;
     this.node = null;
     this.duckGain = null; // 存在時，pipeline 會在口譯播放時自動壓低它
@@ -27,12 +25,11 @@ export class AudioCapture {
 
   async start() {
     if (this.node) return;
+    await this.ctx.resume().catch(() => {});
 
     if (this.external) {
-      // 影片模式：使用外部建好的 AudioContext 與來源節點
-      this.ctx = this.source.context;
+      // 影片模式：來源節點已在共用 context 上建好
       this.duckGain = this.source.duckGain || null;
-      await this.ctx.resume().catch(() => {});
       await this.addWorklet();
       this.source.node.connect(this.node);
       return;
@@ -64,8 +61,6 @@ export class AudioCapture {
       t.addEventListener('ended', () => this.onEnded?.());
     }
 
-    this.ctx = new AudioContext();
-    await this.ctx.resume();
     await this.addWorklet();
     const src = this.ctx.createMediaStreamSource(this.stream);
     src.connect(this.node);
@@ -106,11 +101,7 @@ export class AudioCapture {
       this.node.disconnect();
       this.node = null;
     }
-    if (this.ctx && !this.external) {
-      await this.ctx.close().catch(() => {});
-    }
-    // 外部 context（影片模式）留給擁有者：影片繼續正常出聲
-    this.ctx = null;
+    // context 由 pipeline 管理，這裡不關閉
     this.duckGain = null;
   }
 }

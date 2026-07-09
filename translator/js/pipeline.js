@@ -54,6 +54,13 @@ export class Pipeline extends EventTarget {
     this.holdVoice = false;
     this.holdReleaseMs = 1000;
     this.releaseTimer = null;
+    this.audioCtx = null; // 收音 + 口譯播放共用（iOS 穩定性）
+    this.ownsAudioCtx = false;
+    this._onVisibility = () => {
+      if (this.running && this.audioCtx?.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
+    };
   }
 
   emit(type, detail = {}) {
@@ -145,12 +152,26 @@ export class Pipeline extends EventTarget {
     this.vad.onVoiceStart = () => this.onVoiceStart();
     this.vad.onVoiceEnd = () => this.scheduleRelease();
 
+    // 收音與口譯播放共用同一個 AudioContext（iOS 兩個 context 會互相暫停）。
+    // 影片模式沿用 videoSource 的 context，其餘模式自建一個（由 start 的使用者手勢啟用）。
+    if (externalSource?.context) {
+      this.audioCtx = externalSource.context;
+      this.ownsAudioCtx = false;
+    } else {
+      this.audioCtx = new AudioContext();
+      this.ownsAudioCtx = true;
+    }
+    await this.audioCtx.resume().catch(() => {});
+    this.playback.attach(this.audioCtx);
+    document.addEventListener('visibilitychange', this._onVisibility);
+
     this.sessions = targets.map((t) => this.makeSession(t));
     for (const sess of this.sessions) sess.connect();
 
     this.capture = new AudioCapture({
       source: externalSource || sourceType,
       processing: audioProcessing,
+      context: this.audioCtx,
       onChunk: (chunk) => this.onChunk(chunk),
       onEnded: () => {
         this.emit('fatal', { reason: 'SOURCE_ENDED' });
@@ -217,13 +238,19 @@ export class Pipeline extends EventTarget {
     clearInterval(this.ticker);
     this.ticker = setInterval(() => {
       if (!this.running) return;
+
+      // iOS 保活看門狗：context 一被系統暫停就立刻喚醒，
+      // 否則口譯語音會播到一半凍結、且防迴授閘門會卡死。
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
+
       const speaking = this.voiceOn && this.playback.isSpeaking;
 
       const duckGain = this.capture?.duckGain;
-      if (duckGain) {
+      if (duckGain && this.audioCtx) {
         const target = speaking && this.duckEnabled ? DUCK_LEVEL : 1;
-        const ctx = this.capture.ctx;
-        if (ctx) duckGain.gain.setTargetAtTime(target, ctx.currentTime, 0.1);
+        duckGain.gain.setTargetAtTime(target, this.audioCtx.currentTime, 0.1);
       }
 
       // 交替口譯保險絲：暫存太長就強制開播，避免無限累積
@@ -264,17 +291,23 @@ export class Pipeline extends EventTarget {
     clearInterval(this.idleTimer);
     clearInterval(this.ticker);
     clearTimeout(this.releaseTimer);
+    document.removeEventListener('visibilitychange', this._onVisibility);
     // 停止前把 duckGain 恢復原音量
     const duckGain = this.capture?.duckGain;
-    const ctx = this.capture?.ctx;
-    if (duckGain && ctx) duckGain.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
+    if (duckGain && this.audioCtx) duckGain.gain.setTargetAtTime(1, this.audioCtx.currentTime, 0.05);
     for (const sess of this.sessions) sess.close();
     this.sessions = [];
     if (this.capture) {
       await this.capture.stop();
       this.capture = null;
     }
-    this.playback.flush();
+    this.playback.detach();
+    // 自建的 context 才關閉；影片模式的 context 屬於 videoSource
+    if (this.ownsAudioCtx && this.audioCtx) {
+      await this.audioCtx.close().catch(() => {});
+    }
+    this.audioCtx = null;
+    this.ownsAudioCtx = false;
   }
 
   async stop() {
