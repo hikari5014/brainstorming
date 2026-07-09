@@ -5,6 +5,8 @@ import { MODES, routeSegment } from './modes.js';
 import { Segmenter, SubtitlePanel } from './ui/subtitles.js';
 import { UsageMeter, formatMin } from './ui/usage.js';
 import { TranscriptStore, downloadText } from './ui/transcript.js';
+import { VideoSource } from './video.js';
+import { runDiagnostics, formatDiagnostics } from './diagnostics.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -27,7 +29,10 @@ const panels = {
   mine: new SubtitlePanel($('#panel-mine')),
   theirs: new SubtitlePanel($('#panel-theirs')),
   stream: new SubtitlePanel($('#panel-stream')),
+  video: new SubtitlePanel($('#panel-video')),
 };
+
+const videoSource = new VideoSource($('#video-el'));
 
 const segmenter = new Segmenter({
   onLive(seg) {
@@ -86,9 +91,12 @@ function setMode(modeId) {
   }
   $('#view-conversation').classList.toggle('hidden', mode.view !== 'conversation');
   $('#view-stream').classList.toggle('hidden', mode.view !== 'stream');
-  $('#stream-hint').textContent = mode.hint;
+  $('#view-video').classList.toggle('hidden', mode.view !== 'video');
+  if (mode.view === 'stream') $('#stream-hint').textContent = mode.hint;
+  if (mode.view === 'video') $('#video-hint').textContent = mode.hint;
   $('#flip-btn').classList.toggle('hidden', !(mode.flippable || mode.view === 'conversation'));
   setFlipped(false);
+  refreshModeChrome();
 
   state.voiceOn = mode.voiceDefault;
   updateVoiceBtn();
@@ -179,11 +187,17 @@ pipeline.addEventListener('turn-complete', () => segmenter.finalizeAll());
 pipeline.addEventListener('fatal', (e) => {
   const reason = e.detail.reason || '';
   if (reason === 'SOURCE_ENDED') toast('音訊來源已停止分享，翻譯結束。');
-  else if (/quota|exceeded|429/i.test(reason)) toast('額度已用盡（免費層每日限額）。可到設定切換省額度引擎或明天再試。', 6000);
-  else if (/api key|401|403|PERMISSION/i.test(reason)) toast('API key 無效或無權限，請到設定檢查。', 6000);
-  else toast(`連線失敗：${reason}`, 6000);
+  else if (/quota|exceeded|429/i.test(reason)) toast('額度已用盡（免費層每日限額）。可到設定切換省額度引擎或明天再試。', 10000);
+  else if (/api key|401|403|PERMISSION/i.test(reason)) toast('API key 無效或無權限，請到設定檢查，或執行設定→連線診斷。', 10000);
+  else toast(`連線失敗：${reason}｜可到設定→執行連線診斷找原因`, 10000);
   stopPipeline();
 });
+
+/* ---------- 模式相關的畫面狀態（會議 CTA、影片空狀態） ---------- */
+function refreshModeChrome() {
+  $('#meeting-cta').classList.toggle('hidden', !(state.modeId === 'meeting' && !state.running));
+  $('#video-wrap').classList.toggle('has-media', videoSource.hasMedia);
+}
 
 /* ---------- 開始 / 停止 ---------- */
 async function startPipeline() {
@@ -192,6 +206,14 @@ async function startPipeline() {
     openSettings(true);
     return;
   }
+  let externalSource = null;
+  if (mode.view === 'video') {
+    if (!videoSource.hasMedia) {
+      toast('先開啟影片檔或載入網址，再按開始。');
+      return;
+    }
+    externalSource = await videoSource.ensureGraph();
+  }
   try {
     state.running = true;
     state.startedAt = Date.now();
@@ -199,10 +221,15 @@ async function startPipeline() {
     renderStatus();
     $('#main-btn').classList.add('running');
     $('#main-btn').textContent = '停止';
+    refreshModeChrome();
     await pipeline.start({
       sourceType: mode.source,
       targets: mode.targets(settings, { direction: state.direction }),
       voiceOutput: state.voiceOn,
+      audioProcessing: mode.audio,
+      gateDuringPlayback: Boolean(mode.gate),
+      duckEnabled: mode.view === 'video' ? $('#video-duck').checked : true,
+      externalSource,
     });
     pokeChrome();
   } catch (err) {
@@ -210,6 +237,7 @@ async function startPipeline() {
     $('#main-btn').classList.remove('running');
     $('#main-btn').textContent = '開始';
     renderStatus();
+    refreshModeChrome();
     if (err?.message === 'NO_TAB_AUDIO') {
       toast('沒有抓到音訊：選擇分享「分頁」並勾選「同時分享分頁音訊」。', 6000);
     } else if (err?.name === 'NotAllowedError') {
@@ -229,6 +257,7 @@ async function stopPipeline() {
   $('#standby-overlay').classList.add('hidden');
   document.body.classList.remove('chrome-hidden');
   renderStatus();
+  refreshModeChrome();
 }
 
 async function restartIfRunning() {
@@ -292,6 +321,29 @@ function bindSettings() {
     renderStatus();
     toast('Demo 模式已開啟：不需 API key，可直接按「開始」試玩介面。');
   });
+  $('#run-diagnostics').addEventListener('click', async () => {
+    const box = $('#diag-results');
+    box.classList.remove('hidden');
+    box.textContent = '診斷中…（約需 15 秒，請允許麥克風權限）';
+    const render = (results) => {
+      box.innerHTML = '';
+      for (const r of results) {
+        const div = document.createElement('div');
+        div.className = `diag-row ${r.ok ? 'ok' : 'bad'}`;
+        div.textContent = `${r.ok ? '✅' : '❌'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`;
+        box.appendChild(div);
+      }
+    };
+    const results = await runDiagnostics(settings, render);
+    render(results);
+    const copyBtn = $('#copy-diagnostics');
+    copyBtn.classList.remove('hidden');
+    copyBtn.onclick = async () => {
+      await navigator.clipboard.writeText(formatDiagnostics(results)).catch(() => {});
+      toast('診斷結果已複製，可直接貼給開發者。');
+    };
+  });
+
   $('#set-clear-transcript').addEventListener('click', async () => {
     if (confirm('確定清除所有逐字稿？')) {
       await transcript.clear();
@@ -389,6 +441,33 @@ function bindControls() {
     applyLayout();
   });
   $('#standby-overlay').addEventListener('click', () => pipeline.wake());
+
+  // 會議模式醒目入口：等同按「開始」，直接喚出瀏覽器的分頁選擇器
+  $('#meeting-pick').addEventListener('click', () => {
+    if (!state.running) startPipeline();
+  });
+
+  // 影片模式：開檔 / 貼網址
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.accept = 'video/*,audio/*';
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files?.[0]) {
+      videoSource.loadFile(fileInput.files[0]);
+      refreshModeChrome();
+    }
+  });
+  $('#video-open').addEventListener('click', () => fileInput.click());
+  $('#video-load-url').addEventListener('click', () => {
+    const url = $('#video-url').value.trim();
+    if (!url) return;
+    videoSource.loadUrl(url);
+    refreshModeChrome();
+    toast('若載入後有畫面沒聲音，多半是該網址不允許跨網站音訊（CORS）；改用「開啟影片檔」最可靠。', 6000);
+  });
+  $('#video-el').addEventListener('error', () => {
+    if (MODES[state.modeId].view === 'video') toast('影片載入失敗：請確認是直連影片檔網址，或改用本機檔案。', 6000);
+  });
 }
 
 function updateVoiceBtn() {

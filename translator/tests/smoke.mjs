@@ -110,6 +110,19 @@ try {
   check('聆聽模式：字幕流出現', true);
   await page.click('#main-btn');
 
+  // 影片模式：空狀態與開檔按鈕
+  await page.click('[data-mode="video"]');
+  check('影片模式視圖切換', await page.locator('#view-video').isVisible());
+  check('影片模式空狀態（開檔 CTA）', await page.locator('#video-open').isVisible());
+  await page.click('#main-btn');
+  await page.waitForTimeout(300);
+  check('影片模式無媒體時擋下開始', (await page.locator('#main-btn').textContent()) === '開始');
+  check('影片模式無媒體提示 toast', await page.locator('#toast').isVisible());
+
+  // 會議模式：醒目 CTA
+  await page.click('[data-mode="meeting"]');
+  check('會議模式醒目入口', await page.locator('#meeting-pick').isVisible());
+
   // 手動換向按鈕存在於對話模式
   await page.click('[data-mode="conversation"]');
   check('換向按鈕可見（手動模式）', await page.locator('#swap-btn').isVisible());

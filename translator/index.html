@@ -20,6 +20,7 @@
       <button class="tab active" data-mode="conversation">對話</button>
       <button class="tab" data-mode="listen">聆聽</button>
       <button class="tab" data-mode="speak">我說</button>
+      <button class="tab" data-mode="video">影片</button>
       <button class="tab" data-mode="meeting">會議</button>
     </nav>
     <div class="top-actions">
@@ -61,7 +62,42 @@
     <!-- 聆聽 / 我說 / 會議：單一字幕流 -->
     <section id="view-stream" class="view hidden">
       <p id="stream-hint" class="hint"></p>
+      <!-- 會議模式醒目入口：按下即跳出瀏覽器的分頁選擇器 -->
+      <div id="meeting-cta" class="hidden">
+        <button id="meeting-pick" class="big-cta">🖥️ 選擇要翻譯的分頁／視窗</button>
+        <ol class="cta-steps">
+          <li>按上面的按鈕，瀏覽器會跳出分享選擇器</li>
+          <li>切到「<strong>Chrome 分頁</strong>」頁籤，點選正在開會/播放的那個分頁</li>
+          <li>勾選左下角「<strong>同時分享分頁音訊</strong>」再按「分享」</li>
+        </ol>
+        <p class="cta-note">此功能需要電腦版 Chrome / Edge。開啟🔊口譯語音時會自動壓低會議原音。</p>
+      </div>
       <div class="stream-panel" id="panel-stream">
+        <div class="sub-history"></div>
+        <div class="live-line">
+          <div class="live-src"></div>
+          <div class="live-dst"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 影片模式：app 內播放 + 自動壓低原音 -->
+    <section id="view-video" class="view hidden">
+      <p class="hint" id="video-hint"></p>
+      <div id="video-wrap">
+        <video id="video-el" controls playsinline preload="metadata"></video>
+        <div id="video-empty">
+          <button id="video-open" class="big-cta">🎬 開啟影片／音訊檔</button>
+          <div class="url-row">
+            <input type="url" id="video-url" placeholder="或貼上影片直連網址（.mp4 / .m3u8…）" />
+            <button id="video-load-url">載入</button>
+          </div>
+          <p class="cta-note">支援手機與電腦。YouTube 等串流平台網頁無法直接貼網址（無直連檔案），
+            可用「聆聽模式＋外接裝置播放」或下載後開啟檔案。</p>
+        </div>
+      </div>
+      <label class="mini-toggle video-duck-row"><input type="checkbox" id="video-duck" checked /> 口譯說話時自動壓低影片音量</label>
+      <div class="stream-panel" id="panel-video">
         <div class="sub-history"></div>
         <div class="live-line">
           <div class="live-src"></div>
@@ -144,6 +180,11 @@
     <label class="field">字幕字級
       <input type="range" id="set-font" min="0.8" max="1.8" step="0.1" />
     </label>
+
+    <h3>疑難排解</h3>
+    <button id="run-diagnostics">🩺 執行連線診斷</button>
+    <div id="diag-results" class="hidden"></div>
+    <button id="copy-diagnostics" class="hidden">複製診斷結果</button>
 
     <h3>資料</h3>
     <button id="set-clear-transcript" class="danger">清除所有逐字稿</button>

@@ -184,6 +184,56 @@ select, input[type="password"], input[type="number"], input[type="text"] {
 .main-btn.running { background: var(--danger); color: #fff; box-shadow: 0 4px 18px color-mix(in srgb, var(--danger) 45%, transparent); }
 .right-controls { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }
 
+/* ---------- 會議 CTA / 影片模式 ---------- */
+.big-cta {
+  display: block;
+  margin: 0 auto;
+  padding: 16px 26px;
+  font-size: 18px; font-weight: 800;
+  border-radius: 14px;
+  background: var(--accent); color: #04141f; border: none;
+  box-shadow: 0 4px 22px color-mix(in srgb, var(--accent) 45%, transparent);
+  cursor: pointer;
+}
+#meeting-cta {
+  margin: 8vh auto 20px;
+  max-width: 520px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 26px 26px 14px;
+}
+.cta-steps { margin: 18px 0 6px; padding-left: 22px; line-height: 2; color: var(--text); font-size: 14px; }
+.cta-steps strong { color: var(--accent-2); }
+.cta-note { color: var(--text-dim); font-size: 12px; line-height: 1.6; }
+
+#video-wrap { flex: none; }
+#video-el {
+  display: none; width: 100%; max-height: 38vh;
+  background: #000; border-radius: 10px;
+}
+#video-wrap.has-media #video-el { display: block; }
+#video-wrap.has-media #video-empty { display: none; }
+#video-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  background: var(--bg-panel); border: 1px dashed var(--border); border-radius: 10px;
+  padding: 24px 18px;
+}
+#video-empty .cta-note { text-align: center; max-width: 460px; }
+.url-row { display: flex; gap: 8px; width: min(460px, 100%); }
+.url-row input { flex: 1; min-width: 0; }
+.video-duck-row { margin: 8px 2px; display: flex; }
+#view-video { padding: 10px 16px; }
+
+/* 診斷結果 */
+#diag-results {
+  margin: 8px 0; padding: 10px 12px;
+  background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px;
+  font-size: 12.5px; line-height: 1.7;
+  max-height: 220px; overflow-y: auto;
+}
+.diag-row.bad { color: var(--warn); }
+
 /* ---------- 待機遮罩 ---------- */
 #standby-overlay {
   position: fixed; inset: 0; z-index: 40;
@@ -272,7 +322,8 @@ body.layout-immersive .hint { text-align: center; }
 
 /* 手機窄螢幕：控制列自動換行 */
 @media (max-width: 640px) {
-  #mode-tabs .tab { padding: 6px 9px; font-size: 13px; }
+  #mode-tabs .tab { padding: 6px 7px; font-size: 13px; }
+  #mode-tabs { gap: 2px; }
   .control-row { flex-wrap: wrap; }
   .lang-pair { order: 2; width: 100%; justify-content: center; }
   .main-btn { order: 1; margin: 0 auto; }
