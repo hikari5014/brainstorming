@@ -1,5 +1,9 @@
 name: Deploy translator to GitHub Pages
 
+# 部署策略：把 translator/ 的內容以 git plumbing 推成 gh-pages 分支。
+# GitHub 對 gh-pages 分支自動啟用 Pages，繞過「以 API 建立 Pages 站台」
+# 的 GITHUB_TOKEN 權限限制（Resource not accessible by integration）。
+
 on:
   push:
     branches:
@@ -11,9 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
@@ -22,19 +24,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Pages (auto-enable)
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-      - name: Upload app
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: translator
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Push translator/ tree to gh-pages
+        run: |
+          TREE=$(git rev-parse HEAD:translator)
+          COMMIT=$(git commit-tree "$TREE" -m "Deploy translator@${GITHUB_SHA::7} to GitHub Pages")
+          git push --force origin "$COMMIT:refs/heads/gh-pages"
