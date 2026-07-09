@@ -143,7 +143,7 @@ try {
   check('manifest 可取得且含圖示', manifestResp.ok() && manifest.icons.length === 3);
   const swResp = await page.request.get(base + 'sw.js');
   check('sw.js 可取得', swResp.ok());
-  for (const icon of ['icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png']) {
+  for (const icon of ['icons/icon.svg', 'icons/maskable.svg', 'icons/icon-192.png']) {
     const r = await page.request.get(base + icon);
     if (!r.ok()) check(`圖示 ${icon}`, false);
   }
