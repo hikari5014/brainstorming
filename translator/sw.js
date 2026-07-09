@@ -1,7 +1,7 @@
 // Service worker：快取 app shell 供離線載入與 PWA 安裝。
 // WebSocket（翻譯本體）不經過 SW；沒網路時 app 可開但無法翻譯。
 
-const VERSION = 'v3';
+const VERSION = 'v4';
 const CACHE = `live-translator-${VERSION}`;
 
 const SHELL = [

@@ -24,6 +24,10 @@ html, body {
   color: var(--text);
   font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
   overscroll-behavior: none;
+  /* iOS：關掉雙擊縮放與旋轉時的字級膨脹（縮放跑掉的兩大元凶） */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -47,8 +51,10 @@ button:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); color: #04141f; border-color: var(--accent); font-weight: 700; }
 button.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
 
-select, input[type="password"], input[type="number"], input[type="text"] {
+select, input[type="password"], input[type="number"], input[type="text"], input[type="url"] {
   font: inherit;
+  /* iOS 對 font-size < 16px 的表單控制項會在聚焦時自動放大整頁且不縮回，全部鎖 16px */
+  font-size: 16px;
   color: var(--text);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
