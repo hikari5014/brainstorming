@@ -1,5 +1,6 @@
-// 譯文語音播放：24kHz PCM16 chunks 排進時間軸連續播放，
-// 支援 barge-in（interrupted 時清空佇列）與靜音切換。
+// 譯文語音播放：24kHz PCM16 chunks 排進時間軸連續播放。
+// holdMode（交替口譯）：收到的語音先進 pending 佇列，等 release()（對方說完停頓後）
+// 才開始播，避免同步口譯搶話與手機喇叭→麥克風的迴授迴圈。
 
 const OUTPUT_RATE = 24000;
 
@@ -9,7 +10,9 @@ export class AudioPlayback {
     this.cursor = 0; // 下一個 chunk 的排程時間
     this.sources = new Set();
     this.muted = false;
-    this.onSeconds = null; // 用量統計 callback（實際收到的音訊秒數，靜音也計）
+    this.holdMode = false;
+    this.pending = []; // Int16Array[]
+    this.onSeconds = null; // 用量統計 callback（實際收到的音訊秒數，靜音/暫存也計）
   }
 
   async ensureContext() {
@@ -19,7 +22,7 @@ export class AudioPlayback {
     if (this.ctx.state === 'suspended') await this.ctx.resume().catch(() => {});
   }
 
-  // base64 PCM16 → 排入播放佇列
+  // base64 PCM16 → 播放或暫存
   async enqueueBase64(b64) {
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
@@ -28,6 +31,14 @@ export class AudioPlayback {
     if (int16.length === 0) return;
     this.onSeconds?.(int16.length / OUTPUT_RATE);
 
+    if (this.holdMode) {
+      this.pending.push(int16);
+      return;
+    }
+    await this.scheduleInt16(int16);
+  }
+
+  async scheduleInt16(int16) {
     await this.ensureContext();
     const buf = this.ctx.createBuffer(1, int16.length, OUTPUT_RATE);
     const ch = buf.getChannelData(0);
@@ -46,17 +57,29 @@ export class AudioPlayback {
     src.onended = () => this.sources.delete(src);
   }
 
+  // 交替口譯：把暫存的語音一次排進播放佇列
+  async release() {
+    const held = this.pending;
+    this.pending = [];
+    for (const int16 of held) await this.scheduleInt16(int16);
+  }
+
+  get pendingSeconds() {
+    return this.pending.reduce((s, a) => s + a.length, 0) / OUTPUT_RATE;
+  }
+
   setMuted(muted) {
     this.muted = muted;
     if (muted) this.flush();
   }
 
-  // barge-in / 模式切換：立刻停掉還沒播完的音
+  // barge-in / 模式切換：立刻停掉還沒播完的音與暫存
   flush() {
     for (const src of this.sources) {
       try { src.stop(); } catch { /* already stopped */ }
     }
     this.sources.clear();
+    this.pending = [];
     this.cursor = 0;
   }
 

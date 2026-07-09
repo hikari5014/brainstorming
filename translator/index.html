@@ -155,6 +155,16 @@
 
     <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不連網、不耗額度）</label>
 
+    <h3>口譯播放時機</h3>
+    <label class="field checkbox">
+      <input type="checkbox" id="set-hold" />
+      等對方說完再播口譯（交替口譯）
+    </label>
+    <label class="field">判定「說完了」的停頓時間：<strong id="hold-sec-label"></strong> 秒
+      <input type="range" id="set-hold-sec" min="0.3" max="3" step="0.1" />
+      <small>勾選後口譯語音會先暫存，偵測到停頓才開始播——不搶話、不迴授，但延遲較高。不勾選＝同步口譯（邊說邊播）。停頓時間越長越不會在句子中間插進來。</small>
+    </label>
+
     <h3>省額度</h3>
     <label class="field checkbox"><input type="checkbox" id="set-vad" /> 靜音時停止傳送音訊（本地人聲偵測）</label>
     <label class="field">人聲偵測靈敏度

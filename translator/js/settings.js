@@ -25,6 +25,8 @@ const DEFAULTS = {
   vadEnabled: true,
   vadThreshold: 0.012, // RMS 門檻（0–1）
   vadHangoverMs: 900, // 語音結束後继续送出的緩衝時間
+  holdVoice: false, // 交替口譯：等說話者停頓後才播口譯語音
+  holdReleaseSec: 1.0, // 停頓多久判定「說完了」（可調延遲程度）
   idleDisconnectMin: 2, // 靜音幾分鐘後自動斷線省額度（0 = 不斷線）
   dailyBudgetMin: 60, // 每日用量警示門檻（分鐘，0 = 不提醒）
   layout: 'auto', // 'auto' | 'immersive' | 'dashboard'

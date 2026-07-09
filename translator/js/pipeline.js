@@ -1,9 +1,13 @@
 // Pipeline：所有模式共用的一顆引擎。
 // 音訊來源（麥克風/分頁/影片元素）→ VAD 閘門 → 半雙工閘門 → 1..2 條 Live session → 事件流
 //
-// 半雙工閘門（gateDuringPlayback）：口譯語音播放期間暫停送音並緩衝（最多 GATE_BUFFER_MAX
-// 個 chunks），播畢立刻補送。用來防止伺服器把我們播的口譯聲當成「有人插話」而
-// 中斷生成（對話模式語音講到一半被砍掉的主因）。
+// 半雙工閘門：口譯語音播放期間（含尾端 SPEAK_TAIL_MS）把麥克風輸入「直接丟棄」。
+// 丟棄而非緩衝——手機喇叭播的口譯聲會被麥克風收回去，補送等於把自己的翻譯
+// 再餵回引擎，造成翻譯迴圈；也防止伺服器把口譯聲當「插話」而中斷生成。
+// 只在來源是麥克風時啟用（影片/會議模式的來源不是麥克風，不會迴授）。
+//
+// 交替口譯（holdVoice）：口譯語音先暫存，VAD 偵測到說話者停頓（holdReleaseMs 可調）
+// 才開始播。播的時候對方已不在說話 → 不搶話、迴授機率更低。
 //
 // 自動壓低音量（ducking）：口譯播放時把來源的 duckGain 降到 DUCK_LEVEL（影片模式、
 // 會議模式代播都適用），播畢平滑恢復。
@@ -22,7 +26,8 @@ import { LiveSession } from './live/client.js';
 import { MockSession } from './live/mock.js';
 import { ENGINES } from './settings.js';
 
-const GATE_BUFFER_MAX = 45; // ~4.5 秒
+const SPEAK_TAIL_MS = 400; // 播畢後再丟棄這麼久的輸入（喇叭殘響/迴音尾巴）
+const HOLD_MAX_SEC = 45; // 交替口譯暫存上限，超過強制開播
 const DUCK_LEVEL = 0.12;
 
 export class Pipeline extends EventTarget {
@@ -45,7 +50,10 @@ export class Pipeline extends EventTarget {
     this.voiceOn = true;
     this.gateDuringPlayback = false;
     this.duckEnabled = true;
-    this.gateBuffer = [];
+    this.speakTailUntil = 0;
+    this.holdVoice = false;
+    this.holdReleaseMs = 1000;
+    this.releaseTimer = null;
   }
 
   emit(type, detail = {}) {
@@ -55,10 +63,16 @@ export class Pipeline extends EventTarget {
   setVoiceOutput(on) {
     this.voiceOn = on;
     this.playback.setMuted(!on);
+    this.playback.holdMode = this.holdVoice && on;
   }
 
   get gating() {
-    return this.gateDuringPlayback && this.voiceOn && this.playback.isSpeaking;
+    if (!this.gateDuringPlayback || !this.voiceOn) return false;
+    if (this.playback.isSpeaking) {
+      this.speakTailUntil = Date.now() + SPEAK_TAIL_MS;
+      return true;
+    }
+    return Date.now() < this.speakTailUntil;
   }
 
   makeSession({ code, echo, tag }) {
@@ -83,7 +97,11 @@ export class Pipeline extends EventTarget {
     session.addEventListener('output-transcription', (e) =>
       this.emit('transcription', { ...e.detail, kind: 'output' })
     );
-    session.addEventListener('turn-complete', (e) => this.emit('turn-complete', e.detail));
+    session.addEventListener('turn-complete', (e) => {
+      this.emit('turn-complete', e.detail);
+      // VAD 關閉時退而求其次：用伺服器的回合結束訊號觸發交替口譯開播
+      if (!this.settings.vadEnabled) this.scheduleRelease();
+    });
     session.addEventListener('audio', (e) => this.playback.enqueueBase64(e.detail.base64));
     session.addEventListener('interrupted', () => {
       // 半雙工閘門開啟時理論上不會發生；發生時仍照 barge-in 語意清空佇列
@@ -106,22 +124,26 @@ export class Pipeline extends EventTarget {
       duckEnabled = true,
       externalSource = null,
     } = options;
+    const s = this.settings;
     this.sourceType = sourceType;
     this.targets = targets;
     this.running = true;
     this.standby = false;
-    this.gateDuringPlayback = gateDuringPlayback;
+    // 只有麥克風來源需要防迴授閘門（影片/會議來源與喇叭無迴路）
+    this.gateDuringPlayback = gateDuringPlayback && sourceType === 'mic';
     this.duckEnabled = duckEnabled;
-    this.gateBuffer = [];
+    this.speakTailUntil = 0;
+    this.holdVoice = Boolean(s.holdVoice);
+    this.holdReleaseMs = Math.round((s.holdReleaseSec ?? 1) * 1000);
     this.setVoiceOutput(voiceOutput);
 
-    const s = this.settings;
     this.vad = new VadGate({
       threshold: s.vadThreshold,
       hangoverMs: s.vadHangoverMs,
       enabled: s.vadEnabled,
     });
     this.vad.onVoiceStart = () => this.onVoiceStart();
+    this.vad.onVoiceEnd = () => this.scheduleRelease();
 
     this.sessions = targets.map((t) => this.makeSession(t));
     for (const sess of this.sessions) sess.connect();
@@ -154,11 +176,26 @@ export class Pipeline extends EventTarget {
       return;
     }
     if (this.gating) {
-      this.gateBuffer.push(chunk);
-      if (this.gateBuffer.length > GATE_BUFFER_MAX) this.gateBuffer.shift();
+      // 播放口譯期間的麥克風輸入＝喇叭迴授，直接丟棄（計入省下的量）
+      this.usage?.addSaved((chunk.int16.length / 16000) * this.sessions.length);
       return;
     }
     this.forward(chunk);
+  }
+
+  onVoiceStart() {
+    this.lastVoiceAt = Date.now();
+    // 對方又開口了 → 取消預定的交替口譯開播，繼續暫存
+    clearTimeout(this.releaseTimer);
+    if (this.standby) this.wake();
+  }
+
+  scheduleRelease() {
+    if (!this.holdVoice) return;
+    clearTimeout(this.releaseTimer);
+    this.releaseTimer = setTimeout(() => {
+      if (this.running) this.playback.release();
+    }, this.holdReleaseMs);
   }
 
   forward(chunk) {
@@ -189,17 +226,11 @@ export class Pipeline extends EventTarget {
         if (ctx) duckGain.gain.setTargetAtTime(target, ctx.currentTime, 0.1);
       }
 
-      if (!this.gating && this.gateBuffer.length > 0) {
-        const buffered = this.gateBuffer;
-        this.gateBuffer = [];
-        for (const chunk of buffered) this.forward(chunk);
+      // 交替口譯保險絲：暫存太長就強制開播，避免無限累積
+      if (this.holdVoice && this.playback.pendingSeconds > HOLD_MAX_SEC) {
+        this.playback.release();
       }
     }, 150);
-  }
-
-  onVoiceStart() {
-    this.lastVoiceAt = Date.now();
-    if (this.standby) this.wake();
   }
 
   armIdleTimer() {
@@ -232,6 +263,7 @@ export class Pipeline extends EventTarget {
   async teardown() {
     clearInterval(this.idleTimer);
     clearInterval(this.ticker);
+    clearTimeout(this.releaseTimer);
     // 停止前把 duckGain 恢復原音量
     const duckGain = this.capture?.duckGain;
     const ctx = this.capture?.ctx;
@@ -243,7 +275,6 @@ export class Pipeline extends EventTarget {
       this.capture = null;
     }
     this.playback.flush();
-    this.gateBuffer = [];
   }
 
   async stop() {

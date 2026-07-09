@@ -286,6 +286,9 @@ function openSettings(firstRun = false) {
   $('#set-demo').checked = settings.demoMode;
   $('#set-vad').checked = settings.vadEnabled;
   $('#set-vad-threshold').value = settings.vadThreshold;
+  $('#set-hold').checked = settings.holdVoice;
+  $('#set-hold-sec').value = settings.holdReleaseSec;
+  $('#hold-sec-label').textContent = Number(settings.holdReleaseSec).toFixed(1);
   $('#set-idle').value = settings.idleDisconnectMin;
   $('#set-budget').value = settings.dailyBudgetMin;
   $('#set-layout').value = settings.layout;
@@ -295,6 +298,9 @@ function openSettings(firstRun = false) {
 
 function bindSettings() {
   $('#settings-btn').addEventListener('click', () => openSettings(false));
+  $('#set-hold-sec').addEventListener('input', (e) => {
+    $('#hold-sec-label').textContent = Number(e.target.value).toFixed(1);
+  });
   $('#settings-close').addEventListener('click', () => $('#settings-dialog').close());
   $('#settings-save').addEventListener('click', async () => {
     settings = saveSettings({
@@ -303,6 +309,8 @@ function bindSettings() {
       demoMode: $('#set-demo').checked,
       vadEnabled: $('#set-vad').checked,
       vadThreshold: parseFloat($('#set-vad-threshold').value) || 0.012,
+      holdVoice: $('#set-hold').checked,
+      holdReleaseSec: Math.min(3, Math.max(0.3, parseFloat($('#set-hold-sec').value) || 1)),
       idleDisconnectMin: Math.max(0, parseFloat($('#set-idle').value) || 0),
       dailyBudgetMin: Math.max(0, parseFloat($('#set-budget').value) || 0),
       layout: $('#set-layout').value,
