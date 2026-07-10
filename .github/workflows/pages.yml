@@ -1,0 +1,33 @@
+name: Deploy interpreter to GitHub Pages
+
+# 把 interpreter/ 的內容推成 gh-pages 分支（GitHub 對該分支自動啟用 Pages）。
+# 不走 configure-pages API：GITHUB_TOKEN 無權建立 Pages 站台（前代教訓）。
+
+on:
+  push:
+    branches:
+      - claude/ios-live-interpreter
+    paths:
+      - 'interpreter/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Push interpreter/ tree to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          TREE=$(git rev-parse HEAD:interpreter)
+          COMMIT=$(git commit-tree "$TREE" -m "Deploy interpreter@${GITHUB_SHA::7} to GitHub Pages")
+          git push --force origin "$COMMIT:refs/heads/gh-pages"

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <!-- 鎖定縮放：iOS 的聚焦自動放大/雙擊縮放會讓 app 版面跑掉（上一代教訓） -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#101418" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="口譯機" />
+  <meta name="description" content="口譯機：對講機式即時口譯（Gemini Live）。按住說話、放開翻譯，iOS 優先設計。" />
+  <title>口譯機</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./icons/icon-192.png" sizes="192x192" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./css/app.css" />
+</head>
+<body>
+
+  <header id="topbar">
+    <div id="status"><span id="dot" data-state="idle"></span><span id="status-text">按住下方按鈕開始</span></div>
+    <select id="foreign-lang" aria-label="外語"></select>
+    <div class="top-actions">
+      <button id="install" class="icon-btn hidden" title="安裝 App">⤓</button>
+      <button id="gear" class="icon-btn" title="設定">⚙</button>
+    </div>
+  </header>
+
+  <main id="feed">
+    <p id="feed-hint">
+      像對講機一樣使用：<br />
+      🔵 你要說話 → <strong>按住</strong>左邊藍色鈕，說完<strong>放開</strong><br />
+      🟠 對方要說 → 把手機轉過去，對方<strong>按住</strong>右邊橘色鈕<br />
+      放開後翻譯語音會自動播出
+    </p>
+  </main>
+
+  <div id="meter" aria-hidden="true"></div>
+
+  <footer id="talkbar">
+    <button id="btn-me" class="talk-btn me">
+      <span class="talk-label">🇹🇼 中文</span>
+      <span class="talk-sub">按住說中文</span>
+    </button>
+    <button id="btn-them" class="talk-btn them">
+      <span class="talk-label">🌐</span>
+      <span class="talk-sub">對方按住說</span>
+    </button>
+  </footer>
+
+  <dialog id="settings">
+    <h2>設定</h2>
+    <div id="welcome" class="welcome hidden">
+      <p><strong>歡迎使用口譯機 👋</strong></p>
+      <p>純前端 app：你的 Gemini API key 只存在這台裝置，直連 Google。
+        到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請，或先試玩：</p>
+      <button id="demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
+    </div>
+
+    <label class="field">Gemini API key
+      <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
+      <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
+    </label>
+    <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
+    <label class="field">字幕字級
+      <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" />
+    </label>
+    <label class="field">閒置幾分鐘自動斷線省額度
+      <input type="number" id="set-idle" min="0" step="1" />
+      <small>0 = 不斷線。斷線後按住按鈕會自動重連。</small>
+    </label>
+    <p id="usage-line" class="usage"></p>
+
+    <h3>疑難排解</h3>
+    <button id="run-diag">🩺 執行連線診斷</button>
+    <div id="diag-results" class="hidden"></div>
+    <button id="copy-diag" class="hidden">複製診斷結果</button>
+
+    <h3>資料</h3>
+    <button id="clear-feed" class="danger">清除對話紀錄</button>
+
+    <div class="dialog-actions">
+      <button id="settings-close">取消</button>
+      <button id="settings-save" class="primary">儲存</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="hidden"></div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

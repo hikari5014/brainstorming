@@ -1,0 +1,183 @@
+/* 口譯機 — iOS 優先、單手操作、對講機式介面 */
+
+:root {
+  --bg: #101418;
+  --panel: #1a2027;
+  --elevated: #232b34;
+  --border: #303a45;
+  --text: #eef2f6;
+  --dim: #93a1af;
+  --me: #4cc2ff;      /* 我（中文）＝藍 */
+  --them: #ff9f43;    /* 對方（外語）＝橘 */
+  --danger: #ff6b6b;
+  --ok: #7ef0c0;
+  --font-scale: 1;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+  overscroll-behavior: none;
+  /* iOS 教訓：關雙擊縮放、鎖字級膨脹、關長按選取/選單 */
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+}
+
+.hidden { display: none !important; }
+
+button {
+  font: inherit;
+  color: inherit;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+button.primary { background: var(--me); color: #06222f; border-color: var(--me); font-weight: 700; }
+button.danger { color: var(--danger); border-color: var(--danger); background: transparent; }
+.icon-btn { padding: 8px 12px; line-height: 1; }
+
+/* iOS：表單字級 <16px 會觸發聚焦自動放大（上一代教訓），一律 ≥16px */
+select, input { font: inherit; font-size: 16px; color: var(--text);
+  background: var(--elevated); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; max-width: 100%; }
+
+/* ---------- 頂欄 ---------- */
+#topbar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+#status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 13px; color: var(--dim); }
+#status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#dot { width: 10px; height: 10px; border-radius: 50%; background: #55606e; flex: none; }
+#dot[data-state="open"] { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+#dot[data-state="connecting"] { background: #ffc44c; animation: blink 1s infinite; }
+#dot[data-state="talking"] { background: var(--me); box-shadow: 0 0 8px var(--me); }
+#dot[data-state="error"] { background: var(--danger); }
+@keyframes blink { 50% { opacity: 0.3; } }
+#foreign-lang { flex: none; max-width: 46vw; font-weight: 700; }
+.top-actions { display: flex; gap: 6px; }
+
+/* ---------- 對話流 ---------- */
+#feed {
+  flex: 1; min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 8px;
+  display: flex; flex-direction: column; gap: 10px;
+  scrollbar-width: thin;
+}
+#feed-hint {
+  margin: auto; text-align: center; color: var(--dim);
+  line-height: 2.1; font-size: 15px;
+  background: var(--panel); border: 1px dashed var(--border); border-radius: 16px;
+  padding: 20px 22px;
+}
+
+.bubble {
+  max-width: 86%;
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: none;
+}
+.bubble.has-text { display: block; }
+.bubble.me { align-self: flex-end; background: #143243; border: 1px solid #1d4a63; border-bottom-right-radius: 4px; }
+.bubble.them { align-self: flex-start; background: #3a2a16; border: 1px solid #55401f; border-bottom-left-radius: 4px; }
+.bubble .src { color: var(--dim); font-size: calc(14px * var(--font-scale)); line-height: 1.5; }
+.bubble .dst { font-size: calc(19px * var(--font-scale)); font-weight: 600; line-height: 1.45; margin-top: 2px; }
+.bubble .dst:empty, .bubble .src:empty { display: none; }
+.bubble.me .dst { color: var(--me); }
+.bubble.them .dst { color: var(--them); }
+
+/* ---------- 音量指示條 ---------- */
+#meter {
+  height: 3px; margin: 0 14px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--ok), var(--me));
+  transform-origin: left center;
+  transform: scaleX(var(--level, 0));
+  transition: transform 0.1s;
+  opacity: 0.9;
+}
+
+/* ---------- 對講按鈕 ---------- */
+#talkbar {
+  display: flex; gap: 12px;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.talk-btn {
+  flex: 1;
+  min-height: 96px;
+  border-radius: 22px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  border: none;
+  font-weight: 800;
+  /* 按住不放的按鈕：關掉長按選單/選取（iOS） */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  transition: transform 0.08s, box-shadow 0.15s;
+}
+.talk-btn .talk-label { font-size: 20px; }
+.talk-btn .talk-sub { font-size: 12px; font-weight: 500; opacity: 0.85; }
+.talk-btn.me { background: linear-gradient(180deg, #2a7fb0, #1c5f88); color: #eaf7ff; }
+.talk-btn.them { background: linear-gradient(180deg, #c77b2c, #a05e1a); color: #fff4e6; }
+.talk-btn.holding { transform: scale(0.96); }
+.talk-btn.me.holding { box-shadow: 0 0 0 4px color-mix(in srgb, var(--me) 55%, transparent), 0 0 28px color-mix(in srgb, var(--me) 45%, transparent); }
+.talk-btn.them.holding { box-shadow: 0 0 0 4px color-mix(in srgb, var(--them) 55%, transparent), 0 0 28px color-mix(in srgb, var(--them) 45%, transparent); }
+
+/* 按住時把對面的按鈕壓暗，視覺聚焦 */
+body[data-holding="me"] #btn-them, body[data-holding="them"] #btn-me { opacity: 0.35; }
+
+/* ---------- 設定 ---------- */
+dialog {
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 18px;
+  width: min(440px, 92vw); max-height: 85vh; overflow-y: auto;
+  padding: 20px;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+dialog h2 { margin: 0 0 12px; font-size: 18px; }
+dialog h3 { margin: 18px 0 6px; font-size: 13px; color: var(--dim); letter-spacing: 1px; }
+dialog a { color: var(--me); }
+.field { display: block; margin: 12px 0; font-size: 15px; }
+.field input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 6px; }
+.field small { color: var(--dim); display: block; margin-top: 4px; font-size: 12px; }
+.field.checkbox { display: flex; gap: 8px; align-items: center; }
+.welcome { background: var(--elevated); border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 14px; font-size: 14px; line-height: 1.7; }
+.welcome button { width: 100%; margin-top: 6px; }
+.usage { color: var(--dim); font-size: 13px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+#diag-results { margin: 8px 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.diag-row.bad { color: var(--danger); }
+.diag-row.ok { color: var(--ok); }
+
+/* ---------- Toast ---------- */
+#toast {
+  position: fixed; left: 50%; bottom: calc(140px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 60; max-width: 90vw;
+  background: var(--elevated); border: 1px solid var(--border);
+  border-radius: 14px; padding: 12px 16px; font-size: 14px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
+
+/* 大螢幕（桌機開來測試）置中窄欄即可 */
+@media (min-width: 700px) {
+  #feed, #talkbar, #meter { max-width: 560px; width: 100%; margin-left: auto; margin-right: auto; }
+}

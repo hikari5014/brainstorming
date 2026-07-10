@@ -1,0 +1,17 @@
+{
+  "name": "口譯機 — 對講機式即時口譯",
+  "short_name": "口譯機",
+  "description": "按住說話、放開翻譯：以 Gemini Live 驅動的對講機式即時口譯，iOS 優先設計。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#101418",
+  "theme_color": "#101418",
+  "icons": [
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "./icons/maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" },
+    { "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }
+  ]
+}
