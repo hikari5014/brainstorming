@@ -59,13 +59,35 @@ try {
   check('頁面載入', (await page.title()) === '口譯機', await page.title());
   check('使用說明顯示', await page.locator('#feed-hint').isVisible());
 
-  // 回合 1：我說中文（按住 → 放開）
-  await hold('#btn-me', 1500);
+  // 卡死競態防護：快速點一下（await audio.start() 期間就放開）不能卡在錄音狀態
+  await hold('#btn-me', 20);
+  await page.waitForTimeout(600);
+  const race = await page.evaluate(() => ({
+    holding: window.__kouyiji.state.holding,
+    micEnabled: window.__kouyiji.audio.stream?.getAudioTracks().some((t) => t.enabled) ?? false,
+  }));
+  check('快速點擊不卡在錄音狀態', race.holding === null, JSON.stringify(race));
+  check('未按住時 mic track 為靜音', race.micEnabled === false);
+
+  // 回合 1：我說中文（按住 → 放開），按住期間要顯示錄音中提示
+  const holdBox = await page.locator('#btn-me').boundingBox();
+  await page.mouse.move(holdBox.x + holdBox.width / 2, holdBox.y + holdBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(400);
+  check('按住時顯示錄音中提示', (await page.locator('.turn-state.recording').count()) > 0);
+  const micWhileHolding = await page.evaluate(() =>
+    window.__kouyiji.audio.stream.getAudioTracks().every((t) => t.enabled));
+  check('按住時 mic track 開啟', micWhileHolding);
+  await page.waitForTimeout(1100);
+  await page.mouse.up();
   await page.waitForFunction(
     () => document.querySelector('.bubble.me .dst')?.textContent.length > 0,
     null, { timeout: 15000 }
   );
   check('我方回合：譯文氣泡出現', true);
+  const staleStates = await page.evaluate(() =>
+    document.querySelectorAll('.bubble.me .turn-state').length);
+  check('譯文出現後狀態提示移除', staleStates === 0, `${staleStates} left`);
 
   // 單一 AudioContext 不變式（iOS 凍結問題的根治）
   const audioState = await page.evaluate(() => {

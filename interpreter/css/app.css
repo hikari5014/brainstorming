@@ -91,9 +91,11 @@ select, input { font: inherit; font-size: 16px; color: var(--text);
   max-width: 86%;
   border-radius: 16px;
   padding: 10px 14px;
-  display: none;
 }
-.bubble.has-text { display: block; }
+.turn-state { font-size: 12px; margin-top: 4px; color: var(--dim); }
+.turn-state.recording { color: #ff8080; animation: blink 1.1s infinite; }
+.turn-state.pending { color: var(--ok); }
+.turn-state.failed { color: var(--danger); }
 .bubble.me { align-self: flex-end; background: #143243; border: 1px solid #1d4a63; border-bottom-right-radius: 4px; }
 .bubble.them { align-self: flex-start; background: #3a2a16; border: 1px solid #55401f; border-bottom-left-radius: 4px; }
 .bubble .src { color: var(--dim); font-size: calc(14px * var(--font-scale)); line-height: 1.5; }
@@ -137,7 +139,8 @@ select, input { font: inherit; font-size: 16px; color: var(--text);
 .talk-btn .talk-sub { font-size: 12px; font-weight: 500; opacity: 0.85; }
 .talk-btn.me { background: linear-gradient(180deg, #2a7fb0, #1c5f88); color: #eaf7ff; }
 .talk-btn.them { background: linear-gradient(180deg, #c77b2c, #a05e1a); color: #fff4e6; }
-.talk-btn.holding { transform: scale(0.96); }
+.talk-btn.holding { transform: scale(0.96); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { filter: brightness(1.25); } }
 .talk-btn.me.holding { box-shadow: 0 0 0 4px color-mix(in srgb, var(--me) 55%, transparent), 0 0 28px color-mix(in srgb, var(--me) 45%, transparent); }
 .talk-btn.them.holding { box-shadow: 0 0 0 4px color-mix(in srgb, var(--them) 55%, transparent), 0 0 28px color-mix(in srgb, var(--them) 45%, transparent); }
 

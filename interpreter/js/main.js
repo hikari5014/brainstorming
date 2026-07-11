@@ -18,6 +18,7 @@ const audio = new AudioEngine();
 
 const state = {
   holding: null, // null | 'me' | 'them'
+  pressed: { me: false, them: false }, // 實體按壓狀態（與非同步啟動流程解耦）
   sessions: { toForeign: null, toMine: null },
   pending: { toForeign: [], toMine: [] }, // 連線完成前暫存的音訊（按住即說，不吃字）
   turns: { me: null, them: null }, // 各方向最新一輪的氣泡 DOM
@@ -130,12 +131,18 @@ audio.onMicLost = () => {
 };
 
 /* ---------- 按住說話 ---------- */
+// 重要教訓：beginHold 是非同步的（首次按下要等 getUserMedia 權限對話框）。
+// 手指可能在 await 期間就抬起（例如去點「允許」），所以：
+//   1. pressed[] 追蹤實體按壓，await 之後必須重新確認還按著才進入錄音
+//   2. window 層級的 pointerup/blur catch-all，任何情況都能結束錄音
+//   3. mic track 只在按住期間 enabled（audio.setMicEnabled）
 async function beginHold(side, btn) {
   if (state.holding) return;
   try {
     // 第一次按下（使用者手勢）啟動整個音訊引擎 —— iOS 的唯一正確時機
     await audio.start();
   } catch (err) {
+    state.pressed[side] = false;
     toast(err?.name === 'NotAllowedError' ? '需要麥克風權限才能口譯。' : `無法啟動麥克風：${err?.message || err}`, 6000);
     return;
   }
@@ -144,10 +151,17 @@ async function beginHold(side, btn) {
     acquireWakeLock();
     startIdleWatch();
   }
+  // await 期間手指已放開（權限對話框、快速點擊）→ 不進入錄音
+  if (!state.pressed[side]) {
+    audio.setMicEnabled(false);
+    renderStatus();
+    return;
+  }
   audio.stopPlayback(); // 搶話：立刻停掉還沒播完的譯文
   ensureSessions();
   state.holding = side;
   state.lastActivity = Date.now();
+  audio.setMicEnabled(true);
   btn.classList.add('holding');
   document.body.dataset.holding = side;
   newTurn(side);
@@ -155,11 +169,15 @@ async function beginHold(side, btn) {
 }
 
 function releaseHold() {
+  state.pressed.me = false;
+  state.pressed.them = false;
   if (!state.holding) return;
   const side = state.holding;
   state.holding = null;
+  audio.setMicEnabled(false);
   document.body.dataset.holding = '';
   $(side === 'me' ? '#btn-me' : '#btn-them').classList.remove('holding');
+  setTurnState(side, 'pending');
   renderStatus();
 }
 
@@ -167,25 +185,59 @@ function bindTalkButton(btn, side) {
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     btn.setPointerCapture?.(e.pointerId);
+    state.pressed[side] = true;
     beginHold(side, btn);
   });
   for (const evt of ['pointerup', 'pointercancel']) {
-    btn.addEventListener(evt, () => { if (state.holding === side) releaseHold(); });
+    btn.addEventListener(evt, () => {
+      state.pressed[side] = false;
+      if (state.holding === side) releaseHold();
+    });
   }
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-/* ---------- 字幕氣泡 ---------- */
+// catch-all：不管指標事件在哪裡結束、視窗失焦（權限對話框），一律結束錄音
+for (const evt of ['pointerup', 'pointercancel']) {
+  window.addEventListener(evt, () => releaseHold(), true);
+}
+window.addEventListener('blur', () => releaseHold());
+
+/* ---------- 字幕氣泡（含 錄音中→翻譯中→完成 的狀態提示） ---------- */
 function newTurn(side) {
   const feed = $('#feed');
   $('#feed-hint')?.remove();
   const bubble = document.createElement('div');
   bubble.className = `bubble ${side}`;
-  bubble.innerHTML = '<div class="src"></div><div class="dst"></div>';
+  bubble.innerHTML = '<div class="src"></div><div class="dst"></div><div class="turn-state"></div>';
   feed.appendChild(bubble);
   while (feed.children.length > 120) feed.firstChild.remove();
   state.turns[side] = bubble;
+  setTurnState(side, 'recording');
   feed.scrollTop = feed.scrollHeight;
+}
+
+function setTurnState(side, phase) {
+  const bubble = state.turns[side];
+  if (!bubble) return;
+  const el = bubble.querySelector('.turn-state');
+  if (!el) return;
+  clearTimeout(bubble._stateTimer);
+  if (phase === 'recording') {
+    el.textContent = '🔴 錄音中…（放開結束）';
+    el.className = 'turn-state recording';
+  } else if (phase === 'pending') {
+    // 已放開：等待譯文；太久沒回應要明講，不能讓使用者以為還在錄
+    el.textContent = '✋ 已停止錄音 · 翻譯中…';
+    el.className = 'turn-state pending';
+    bubble._stateTimer = setTimeout(() => {
+      if (bubble.querySelector('.dst').textContent) return;
+      el.textContent = '沒有收到翻譯（可能沒收到聲音），請再按住試一次';
+      el.className = 'turn-state failed';
+    }, 12000);
+  } else {
+    el.remove();
+  }
 }
 
 function appendText(tag, kind, text) {
@@ -193,7 +245,7 @@ function appendText(tag, kind, text) {
   if (!state.turns[side]) newTurn(side);
   const el = state.turns[side].querySelector(`.${kind}`);
   el.textContent += text;
-  state.turns[side].classList.add('has-text');
+  if (kind === 'dst') setTurnState(side, 'done'); // 譯文開始出現 → 移除狀態提示
   $('#feed').scrollTop = $('#feed').scrollHeight;
   state.lastActivity = Date.now();
 }
@@ -230,8 +282,9 @@ function startIdleWatch() {
     if (hasOpen && !state.holding && !audio.isSpeaking &&
         Date.now() - state.lastActivity > min * 60_000) {
       disconnectSessions();
+      audio.close(); // 連麥克風一起關：iOS 的橘色錄音指示燈熄滅，下次按住再重啟
       renderStatus();
-      toast('閒置已自動斷線省額度，按住按鈕即恢復。');
+      toast('閒置已自動斷線省額度（麥克風已關閉），按住按鈕即恢復。');
     }
   }, 10_000);
 }

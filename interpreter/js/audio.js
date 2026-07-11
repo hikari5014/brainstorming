@@ -63,6 +63,12 @@ export class AudioEngine {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
   }
 
+  // 沒按住時把 mic track 靜音（第二道防線：就算 UI 狀態出錯也錄不到東西）
+  setMicEnabled(on) {
+    if (!this.stream) return;
+    for (const t of this.stream.getAudioTracks()) t.enabled = on;
+  }
+
   // base64 24kHz PCM16 → 排入播放佇列，回傳這段音訊秒數
   playBase64(b64) {
     const bin = atob(b64);

@@ -1,6 +1,6 @@
 // Service worker：app shell 快取（網路優先，改版即時生效；離線可開但無法翻譯）。
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `kouyiji-${VERSION}`;
 
 const SHELL = [
