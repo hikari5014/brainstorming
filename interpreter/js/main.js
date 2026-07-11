@@ -410,6 +410,7 @@ function bindPwa() {
 
 /* ---------- 啟動 ---------- */
 function boot() {
+  $('#ver').textContent = self.APP_VERSION || '?';
   document.documentElement.style.setProperty('--font-scale', settings.fontScale);
   fillLangSelect();
   renderLangUI();

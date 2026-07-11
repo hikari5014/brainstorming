@@ -59,6 +59,15 @@ try {
   check('頁面載入', (await page.title()) === '口譯機', await page.title());
   check('使用說明顯示', await page.locator('#feed-hint').isVisible());
 
+  // 版本徽章：顯示且與 version.js / sw 快取版本一致
+  const verInfo = await page.evaluate(() => ({
+    shown: document.querySelector('#ver').textContent,
+    actual: self.APP_VERSION,
+  }));
+  check('版本徽章顯示且一致', verInfo.shown === verInfo.actual && /^v\d+/.test(verInfo.shown), verInfo.shown);
+  const swVer = await (await page.request.get(base + 'js/version.js')).text();
+  check('sw 與頁面共用同一版本來源', swVer.includes(`'${verInfo.shown}'`));
+
   // 卡死競態防護：快速點一下（await audio.start() 期間就放開）不能卡在錄音狀態
   await hold('#btn-me', 20);
   await page.waitForTimeout(600);

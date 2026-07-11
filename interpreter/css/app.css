@@ -63,6 +63,11 @@ select, input { font: inherit; font-size: 16px; color: var(--text);
 }
 #status { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; font-size: 13px; color: var(--dim); }
 #status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ver {
+  flex: none; font-size: 10px; color: var(--dim);
+  border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px;
+  letter-spacing: 0.5px;
+}
 #dot { width: 10px; height: 10px; border-radius: 50%; background: #55606e; flex: none; }
 #dot[data-state="open"] { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
 #dot[data-state="connecting"] { background: #ffc44c; animation: blink 1s infinite; }

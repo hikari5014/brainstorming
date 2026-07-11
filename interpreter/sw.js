@@ -1,7 +1,7 @@
 // Service worker：app shell 快取（網路優先，改版即時生效；離線可開但無法翻譯）。
 
-const VERSION = 'v2';
-const CACHE = `kouyiji-${VERSION}`;
+importScripts('./js/version.js');
+const CACHE = `kouyiji-${self.APP_VERSION}`;
 
 const SHELL = [
   './',
@@ -15,6 +15,7 @@ const SHELL = [
   './js/settings.js',
   './js/diag.js',
   './js/capture-worklet.js',
+  './js/version.js',
   './icons/icon.svg',
   './icons/maskable.svg',
   './icons/icon-192.png',
