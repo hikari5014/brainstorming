@@ -203,7 +203,9 @@ async function startSession(mode) {
     toast(err?.name === 'NotAllowedError' ? '需要麥克風權限。' : `無法啟動麥克風：${err?.message || err}`, 6000);
     return;
   }
-  audio.setMicEnabled(false);
+  // 教訓：通話期間不要反覆開關 mic track —— iOS 每次切換都會重新配置音訊路由，
+  // 讓後續播放斷斷續續。整通電話保持開啟，收不收音由回合狀態機（軟體層）決定。
+  audio.setMicEnabled(true);
   state.phase = mode;
   state.callHadTurns = false;
   state.lastActivity = Date.now();
@@ -250,7 +252,7 @@ async function beginHold(side, btn) {
   audio.stopPlayback(); // 搶話：停掉還沒播完的譯文
   state.holding = side;
   state.lastActivity = Date.now();
-  audio.setMicEnabled(true);
+  if (settings.voiceAfterRelease) audio.beginVoiceHold(); // 錄音中譯文語音先暫存
   btn.classList.add('holding');
   document.body.dataset.holding = side;
   hidePendingDots();
@@ -263,7 +265,7 @@ function releaseHold() {
   state.pressed.them = false;
   if (!state.holding) return;
   state.holding = null;
-  audio.setMicEnabled(false);
+  audio.endVoiceHold(); // 放開 → 播出暫存的譯文語音（字幕早已即時顯示）
   document.body.dataset.holding = '';
   $('#hold-me').classList.remove('holding');
   $('#hold-them').classList.remove('holding');
@@ -306,8 +308,7 @@ function hidePendingDots() {
 
 /* ---------- 聆聽模式 ---------- */
 function setListening(on, skipUi = false) {
-  state.listening = on;
-  audio.setMicEnabled(on && state.phase === 'listen');
+  state.listening = on; // 收不收音由軟體層決定，不動 mic track（iOS 路由穩定性）
   if (skipUi) return;
   const btn = $('#listen-toggle');
   btn.classList.toggle('on', on);
@@ -442,10 +443,18 @@ document.addEventListener('visibilitychange', () => {
 });
 
 /* ---------- 設定 ---------- */
+function applyTheme() {
+  document.documentElement.dataset.theme = settings.theme;
+  document.querySelector('meta[name="theme-color"]')
+    ?.setAttribute('content', settings.theme === 'light' ? '#f4f6f9' : '#0e1116');
+}
+
 function openSettings(firstRun = false) {
   $('#welcome').classList.toggle('hidden', !firstRun);
   $('#set-key').value = settings.apiKey;
   $('#set-demo').checked = settings.demoMode;
+  $('#set-voice-after').checked = settings.voiceAfterRelease;
+  $('#set-theme').value = settings.theme;
   $('#set-font').value = settings.fontScale;
   $('#set-idle').value = settings.idleDisconnectMin;
   let u = {};
@@ -461,10 +470,14 @@ function bindSettings() {
     settings = saveSettings({
       apiKey: $('#set-key').value.trim(),
       demoMode: $('#set-demo').checked,
+      voiceAfterRelease: $('#set-voice-after').checked,
+      theme: $('#set-theme').value,
       fontScale: parseFloat($('#set-font').value) || 1,
       idleDisconnectMin: Math.max(0, parseFloat($('#set-idle').value) || 0),
     });
     document.documentElement.style.setProperty('--font-scale', settings.fontScale);
+    applyTheme();
+    if (!settings.voiceAfterRelease) audio.endVoiceHold(); // 關閉功能時放出可能的暫存
     closeSessions();
     $('#settings').close();
   });
@@ -529,6 +542,7 @@ function bindHome() {
 function boot() {
   $('#ver').textContent = self.APP_VERSION || '?';
   document.documentElement.style.setProperty('--font-scale', settings.fontScale);
+  applyTheme();
   fillLangSelect();
   renderLangUI();
   bindHold($('#hold-me'), 'me');

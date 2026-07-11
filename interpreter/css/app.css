@@ -10,7 +10,23 @@
   --accent: #0a84ff;          /* 單一強調色 */
   --accent-soft: rgba(10, 132, 255, 0.14);
   --danger: #ff453a;
+  --shadow: rgba(0, 0, 0, 0.55);
+  --ok-text: #30d158;
   --font-scale: 1;
+}
+
+/* 淺色主題（設定 → 介面主題） */
+html[data-theme="light"] {
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --line: #dbe2ea;
+  --text: #17212b;
+  --dim: #5b6b7c;
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.12);
+  --danger: #d70015;
+  --shadow: rgba(30, 45, 60, 0.18);
+  --ok-text: #1d9a46;
 }
 
 * { box-sizing: border-box; }
@@ -210,7 +226,7 @@ dialog a { color: var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.1rem; }
 #diag-results { margin: 0.5rem 0; display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
 .diag-row.bad { color: var(--danger); }
-.diag-row.ok { color: #30d158; }
+.diag-row.ok { color: var(--ok-text); }
 
 /* ================= Toast ================= */
 #toast {
@@ -219,7 +235,7 @@ dialog a { color: var(--accent); }
   z-index: 60; max-width: 90vw;
   background: var(--panel); border: 1px solid var(--line);
   border-radius: 0.9rem; padding: 0.75rem 1rem; font-size: 0.9rem;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 12px 36px var(--shadow);
 }
 
 /* 桌機預覽：置中窄欄 */

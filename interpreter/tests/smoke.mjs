@@ -77,6 +77,15 @@ try {
   check('對方側語言標籤', (await page.locator('#theirs-lang').textContent()) === 'English');
   check('對方側按鈕使用讀者語言', (await page.locator('#hold-them-label').textContent()).includes('Hold'));
 
+  // 「放開後才播語音」：按住期間語音進入暫存，放開後解除
+  const boxMe = await page.locator('#hold-me').boundingBox();
+  await page.mouse.move(boxMe.x + boxMe.width / 2, boxMe.y + boxMe.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(300);
+  check('按住時譯文語音暫存中', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === true));
+  await page.mouse.up();
+  check('放開後語音暫存解除', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === false));
+
   // 我方按住說話 → 上半區出現譯文（大字）與原文參考
   await hold('#hold-me', 1500);
   check('放開後出現翻譯中跳動點', await page.locator('#pending-dots').isVisible());
@@ -96,9 +105,11 @@ try {
   await page.waitForTimeout(400);
   const race = await page.evaluate(() => ({
     holding: window.__kouyiji.state.holding,
-    mic: window.__kouyiji.audio.stream?.getAudioTracks().some((t) => t.enabled) ?? false,
+    // v5 教訓：通話期間 mic track 保持開啟（iOS 路由穩定），收不收音由狀態機決定
+    micStable: window.__kouyiji.audio.stream?.getAudioTracks().every((t) => t.enabled) ?? false,
   }));
-  check('快速點擊不卡在錄音狀態', race.holding === null && race.mic === false, JSON.stringify(race));
+  check('快速點擊不卡在錄音狀態', race.holding === null, JSON.stringify(race));
+  check('通話期間 mic track 不切換（保持開啟）', race.micStable === true);
 
   // 結束通話 → 逐字稿檢視自動開啟、麥克風關閉
   await page.click('#end-call');
@@ -126,6 +137,20 @@ try {
   await page.waitForSelector('#transcript[open]', { timeout: 5000 });
   await page.click('#tr-close');
   check('聆聽結束 → 逐字稿', true);
+
+  /* ---- 淺色主題 ---- */
+  await page.click('#gear');
+  await page.selectOption('#set-theme', 'light');
+  await page.click('#settings-save');
+  const theme = await page.evaluate(() => ({
+    attr: document.documentElement.dataset.theme,
+    bg: getComputedStyle(document.body).backgroundColor,
+  }));
+  check('切換淺色主題', theme.attr === 'light' && theme.bg !== 'rgb(14, 17, 22)', JSON.stringify(theme));
+  await page.click('#gear');
+  await page.selectOption('#set-theme', 'dark');
+  await page.click('#settings-save');
+  check('切回深色主題', await page.evaluate(() => document.documentElement.dataset.theme === 'dark'));
 
   /* ---- 無障礙抽查 ---- */
   const a11y = await page.evaluate(() => {

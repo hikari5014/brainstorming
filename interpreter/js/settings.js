@@ -10,6 +10,8 @@ const DEFAULTS = {
   demoMode: false,
   fontScale: 1,
   idleDisconnectMin: 5, // 幾分鐘沒對話就斷線省額度（按鈕按下自動重連）
+  voiceAfterRelease: true, // 放開錄音鈕後才播翻譯語音（字幕仍即時），避免兩個聲音重疊
+  theme: 'dark', // 'dark' | 'light'
 };
 
 let cached = null;

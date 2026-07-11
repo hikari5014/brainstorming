@@ -10,7 +10,8 @@
 //    且免去反覆要權限；要不要把聲音送出去由狀態機決定，不開關 mic。
 
 const OUTPUT_RATE = 24000;
-const LEAD = 0.06;
+// 排程提前量：加大以吸收網路抖動與 iOS 音訊路由切換的縫隙（斷斷續續的教訓）
+const LEAD = 0.12;
 
 export class AudioEngine {
   constructor() {
@@ -23,6 +24,9 @@ export class AudioEngine {
     this.speakUntil = 0; // performance.now ms
     this.sources = new Set();
     this.watchdog = null;
+    // 「放開後才播」：錄音期間譯文語音先暫存，放開再一次播出（避免兩個聲音重疊）
+    this.voiceHeld = false;
+    this.pendingPcm = [];
     this._onVisibility = () => this.kick();
   }
 
@@ -69,14 +73,21 @@ export class AudioEngine {
     for (const t of this.stream.getAudioTracks()) t.enabled = on;
   }
 
-  // base64 24kHz PCM16 → 排入播放佇列，回傳這段音訊秒數
+  // base64 24kHz PCM16 → 播放（或暫存），回傳這段音訊秒數
   playBase64(b64) {
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const int16 = new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
     if (int16.length === 0 || !this.ctx) return 0;
+    if (this.voiceHeld) {
+      this.pendingPcm.push(int16);
+      return int16.length / OUTPUT_RATE;
+    }
+    return this.scheduleInt16(int16);
+  }
 
+  scheduleInt16(int16) {
     const buf = this.ctx.createBuffer(1, int16.length, OUTPUT_RATE);
     const ch = buf.getChannelData(0);
     for (let i = 0; i < int16.length; i++) ch[i] = int16[i] / 0x8000;
@@ -93,12 +104,26 @@ export class AudioEngine {
     return buf.duration;
   }
 
-  // 對方按下按鈕搶話 → 立刻停掉還沒播完的譯文
+  // 錄音開始：譯文語音改為暫存（字幕不受影響）
+  beginVoiceHold() {
+    this.voiceHeld = true;
+  }
+
+  // 錄音結束：把暫存的譯文語音依序播出
+  endVoiceHold() {
+    this.voiceHeld = false;
+    const held = this.pendingPcm;
+    this.pendingPcm = [];
+    for (const int16 of held) this.scheduleInt16(int16);
+  }
+
+  // 對方按下按鈕搶話 → 立刻停掉還沒播完（含暫存）的譯文
   stopPlayback() {
     for (const src of this.sources) {
       try { src.stop(); } catch { /* stopped */ }
     }
     this.sources.clear();
+    this.pendingPcm = [];
     this.cursor = 0;
     this.speakUntil = 0;
   }
