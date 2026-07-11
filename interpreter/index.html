@@ -2,13 +2,12 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8" />
-  <!-- 鎖定縮放：iOS 的聚焦自動放大/雙擊縮放會讓 app 版面跑掉（上一代教訓） -->
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#101418" />
+  <meta name="theme-color" content="#0e1116" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="口譯機" />
-  <meta name="description" content="口譯機：對講機式即時口譯（Gemini Live）。按住說話、放開翻譯，iOS 優先設計。" />
+  <meta name="description" content="口譯機：面對面雙向即時口譯（Gemini Live）。按住說話、放開翻譯。" />
   <title>口譯機</title>
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
@@ -16,41 +15,134 @@
   <link rel="apple-touch-icon" href="./icons/icon-192.png" />
   <link rel="stylesheet" href="./css/app.css" />
 </head>
-<body>
+<body data-phase="home">
 
   <script src="./js/version.js"></script>
 
-  <header id="topbar">
-    <div id="status"><span id="dot" data-state="idle"></span><span id="status-text">按住下方按鈕開始</span><span id="ver"></span></div>
-    <select id="foreign-lang" aria-label="外語"></select>
-    <div class="top-actions">
-      <button id="install" class="icon-btn hidden" title="安裝 App">⤓</button>
-      <button id="gear" class="icon-btn" title="設定">⚙</button>
+  <!-- SVG outline 圖示庫 -->
+  <svg style="display:none" aria-hidden="true">
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z M14 3v5h5 M10 12h6 M10 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-end" viewBox="0 0 24 24"><path d="M4 14c4.5-4 11.5-4 16 0l-2.5 3c-1-.6-2-1.4-2.5-2.4-2-.8-4-.8-6 0-.5 1-1.5 1.8-2.5 2.4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6 4c-1 0-2 1-2 2 0 8 6 14 14 14 1 0 2-1 2-2v-2.5l-4-1.5-1.5 2C12 15 9.5 12.5 8.5 10l2-1.5L9 4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3 M12 18.2v3 M2.8 12h3 M18.2 12h3 M5.5 5.5l2.1 2.1 M16.4 16.4l2.1 2.1 M18.5 5.5l-2.1 2.1 M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3 M20 16H7l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4 M8 8l4-4 4 4 M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11 M8 11l4 4 4-4 M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0 M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-ear" viewBox="0 0 24 24"><path d="M6 10a6 6 0 1 1 12 0c0 3-2.5 4-3.5 6-.7 1.4-1 3-3 3s-2.6-1.5-2.6-1.5 M9.5 10a2.5 2.5 0 1 1 5 0c0 1.6-1.4 2.2-2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- ============ 首頁（通話隱喻） ============ -->
+  <div id="view-home" class="view">
+    <header id="home-top">
+      <span class="brand">口譯機 <span id="ver"></span></span>
+      <button id="gear" class="icon-btn" aria-label="設定"><svg width="22" height="22"><use href="#i-gear"/></svg></button>
+    </header>
+
+    <div id="home-body">
+      <div id="mode-seg" role="tablist" aria-label="模式">
+        <button class="seg active" data-mode="call" role="tab" aria-selected="true">
+          <svg width="18" height="18"><use href="#i-mic"/></svg>面對面對話
+        </button>
+        <button class="seg" data-mode="listen" role="tab" aria-selected="false">
+          <svg width="18" height="18"><use href="#i-ear"/></svg>聆聽
+        </button>
+      </div>
+      <p id="mode-hint">兩人面對面：手機平放中間，各自按住自己那側說話</p>
+
+      <label id="home-lang" class="field">外語
+        <select id="foreign-lang" aria-label="選擇外語"></select>
+      </label>
+
+      <button id="start-btn" aria-label="開始">
+        <svg width="34" height="34"><use href="#i-phone"/></svg>
+        <span id="start-label">開始對話</span>
+      </button>
+      <p id="start-note">按下才會開啟麥克風與連線</p>
     </div>
-  </header>
+  </div>
 
-  <main id="feed">
-    <p id="feed-hint">
-      像對講機一樣使用：<br />
-      🔵 你要說話 → <strong>按住</strong>左邊藍色鈕，說完<strong>放開</strong><br />
-      🟠 對方要說 → 把手機轉過去，對方<strong>按住</strong>右邊橘色鈕<br />
-      放開後翻譯語音會自動播出
-    </p>
-  </main>
+  <!-- ============ 面對面對話 ============ -->
+  <div id="view-call" class="view hidden">
+    <!-- 上半：面向對方，旋轉 180° -->
+    <section class="side theirs" aria-label="對方區域">
+      <header class="side-head">
+        <span class="side-lang" id="theirs-lang">English</span>
+        <span class="live"><span class="live-dot"></span><span id="theirs-live">Interpreting</span></span>
+      </header>
+      <div class="side-content">
+        <div class="dst" id="theirs-dst" aria-live="polite"></div>
+        <div class="src" id="theirs-src-row"><span class="src-label" id="theirs-src-label">Original</span><span id="theirs-src"></span></div>
+      </div>
+      <div class="wave" id="wave-them" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <button class="hold-btn" id="hold-them" aria-label="Hold to speak">
+        <svg width="22" height="22"><use href="#i-mic"/></svg>
+        <span id="hold-them-label">Hold to speak</span>
+      </button>
+    </section>
 
-  <div id="meter" aria-hidden="true"></div>
+    <!-- 中控列（不旋轉，兩人共用） -->
+    <div id="controlbar">
+      <button id="open-transcript" class="icon-btn" aria-label="逐字稿紀錄"><svg width="22" height="22"><use href="#i-doc"/></svg></button>
+      <button id="pair" aria-label="語言設定">
+        <span>中文</span><svg width="16" height="16"><use href="#i-swap"/></svg><span id="pair-foreign">English</span>
+      </button>
+      <button id="end-call" class="icon-btn end" aria-label="結束通話"><svg width="22" height="22"><use href="#i-end"/></svg></button>
+    </div>
+    <!-- 翻譯中跳動點：固定高度，避免版面跳動 -->
+    <div id="pending-strip" aria-live="polite">
+      <span id="pending-dots" class="hidden"><i></i><i></i><i></i><em>翻譯中</em></span>
+    </div>
 
-  <footer id="talkbar">
-    <button id="btn-me" class="talk-btn me">
-      <span class="talk-label">🇹🇼 中文</span>
-      <span class="talk-sub">按住說中文</span>
-    </button>
-    <button id="btn-them" class="talk-btn them">
-      <span class="talk-label">🌐</span>
-      <span class="talk-sub">對方按住說</span>
-    </button>
-  </footer>
+    <!-- 下半：面向自己 -->
+    <section class="side mine" aria-label="我的區域">
+      <header class="side-head">
+        <span class="side-lang">中文</span>
+        <span class="live"><span class="live-dot"></span><span>口譯進行中</span></span>
+      </header>
+      <div class="side-content">
+        <div class="dst" id="mine-dst" aria-live="polite"></div>
+        <div class="src" id="mine-src-row"><span class="src-label">原文</span><span id="mine-src"></span></div>
+      </div>
+      <div class="wave" id="wave-me" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <button class="hold-btn" id="hold-me" aria-label="按住說話">
+        <svg width="22" height="22"><use href="#i-mic"/></svg>
+        <span>按住說話</span>
+      </button>
+    </section>
+  </div>
 
+  <!-- ============ 聆聽模式 ============ -->
+  <div id="view-listen" class="view hidden">
+    <header class="side-head listen-head">
+      <span class="side-lang" id="listen-lang">English → 中文</span>
+      <span class="live"><span class="live-dot"></span><span id="listen-state">未聆聽</span></span>
+      <button id="listen-end" class="icon-btn end" aria-label="結束聆聽"><svg width="22" height="22"><use href="#i-end"/></svg></button>
+    </header>
+    <div id="listen-feed" aria-live="polite"></div>
+    <div class="wave" id="wave-listen" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="listen-bar">
+      <button id="listen-toggle" aria-label="開始聆聽">
+        <svg width="24" height="24"><use href="#i-ear"/></svg><span>開始聆聽</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ 逐字稿 ============ -->
+  <dialog id="transcript">
+    <h2>逐字稿</h2>
+    <div id="tr-list"></div>
+    <div class="dialog-actions">
+      <button id="tr-copy" aria-label="複製全部"><svg width="18" height="18"><use href="#i-copy"/></svg>複製</button>
+      <button id="tr-share" aria-label="分享"><svg width="18" height="18"><use href="#i-share"/></svg>分享</button>
+      <button id="tr-export" aria-label="匯出文字檔"><svg width="18" height="18"><use href="#i-download"/></svg>匯出</button>
+      <button id="tr-clear" class="danger" aria-label="清除全部">清除</button>
+      <button id="tr-close" class="primary">關閉</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 設定 ============ -->
   <dialog id="settings">
     <h2>設定</h2>
     <div id="welcome" class="welcome hidden">
@@ -59,36 +151,29 @@
         到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請，或先試玩：</p>
       <button id="demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
     </div>
-
     <label class="field">Gemini API key
       <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
       <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
     </label>
     <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
-    <label class="field">字幕字級
-      <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" />
+    <label class="field">字級
+      <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" aria-label="字級" />
     </label>
-    <label class="field">閒置幾分鐘自動斷線省額度
+    <label class="field">閒置幾分鐘自動結束省額度
       <input type="number" id="set-idle" min="0" step="1" />
-      <small>0 = 不斷線。斷線後按住按鈕會自動重連。</small>
     </label>
     <p id="usage-line" class="usage"></p>
-
     <h3>疑難排解</h3>
     <button id="run-diag">🩺 執行連線診斷</button>
     <div id="diag-results" class="hidden"></div>
     <button id="copy-diag" class="hidden">複製診斷結果</button>
-
-    <h3>資料</h3>
-    <button id="clear-feed" class="danger">清除對話紀錄</button>
-
     <div class="dialog-actions">
       <button id="settings-close">取消</button>
       <button id="settings-save" class="primary">儲存</button>
     </div>
   </dialog>
 
-  <div id="toast" class="hidden"></div>
+  <div id="toast" class="hidden" role="status"></div>
 
   <script type="module" src="./js/main.js"></script>
 </body>

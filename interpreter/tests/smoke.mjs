@@ -1,4 +1,4 @@
-// 冒煙測試：Demo 引擎 + 假麥克風，完整跑對講機回合狀態機。
+// v4 冒煙測試：通話隱喻 + 面對面分區 + 聆聽模式 + 逐字稿。
 // 執行：node tests/smoke.mjs（需 playwright-core；CHROME_PATH 可指定瀏覽器）
 
 import { createServer } from 'node:http';
@@ -42,6 +42,7 @@ const page = await ctx.newPage();
 const pageErrors = [];
 page.on('pageerror', (e) => pageErrors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') pageErrors.push(m.text()); });
+page.on('dialog', (d) => d.accept()); // confirm() 清除逐字稿
 
 async function hold(selector, ms) {
   const box = await page.locator(selector).boundingBox();
@@ -54,99 +55,99 @@ async function hold(selector, ms) {
 try {
   await page.addInitScript(() => {
     localStorage.setItem('kouyiji.settings.v1', JSON.stringify({ demoMode: true }));
+    indexedDB.deleteDatabase('kouyiji');
   });
   await page.goto(base, { waitUntil: 'networkidle' });
   check('頁面載入', (await page.title()) === '口譯機', await page.title());
-  check('使用說明顯示', await page.locator('#feed-hint').isVisible());
+  check('版本徽章顯示', /^v\d+/.test(await page.locator('#ver').textContent()), await page.locator('#ver').textContent());
+  check('首頁＝通話隱喻（開始鈕）', await page.locator('#start-btn').isVisible());
+  check('麥克風尚未開啟（按開始才開）', await page.evaluate(() => !window.__kouyiji.audio.ready));
 
-  // 版本徽章：顯示且與 version.js / sw 快取版本一致
-  const verInfo = await page.evaluate(() => ({
-    shown: document.querySelector('#ver').textContent,
-    actual: self.APP_VERSION,
+  /* ---- 面對面對話 ---- */
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  check('開始對話 → 進入面對面畫面', true);
+  check('麥克風已開啟（單一 context）', await page.evaluate(() => {
+    const a = window.__kouyiji.audio;
+    return a.ready && a.ctx.state === 'running';
   }));
-  check('版本徽章顯示且一致', verInfo.shown === verInfo.actual && /^v\d+/.test(verInfo.shown), verInfo.shown);
-  const swVer = await (await page.request.get(base + 'js/version.js')).text();
-  check('sw 與頁面共用同一版本來源', swVer.includes(`'${verInfo.shown}'`));
+  const rotated = await page.evaluate(() =>
+    getComputedStyle(document.querySelector('.side.theirs')).transform !== 'none');
+  check('上半區 180° 旋轉', rotated);
+  check('對方側語言標籤', (await page.locator('#theirs-lang').textContent()) === 'English');
+  check('對方側按鈕使用讀者語言', (await page.locator('#hold-them-label').textContent()).includes('Hold'));
 
-  // 卡死競態防護：快速點一下（await audio.start() 期間就放開）不能卡在錄音狀態
-  await hold('#btn-me', 20);
-  await page.waitForTimeout(600);
+  // 我方按住說話 → 上半區出現譯文（大字）與原文參考
+  await hold('#hold-me', 1500);
+  check('放開後出現翻譯中跳動點', await page.locator('#pending-dots').isVisible());
+  await page.waitForFunction(() => document.querySelector('#theirs-dst').textContent.length > 0, null, { timeout: 15000 });
+  check('對方側出現譯文', true);
+  await page.waitForFunction(() => document.querySelector('#theirs-src').textContent.length > 0, null, { timeout: 5000 });
+  check('對方側出現原文參考', true);
+  check('譯文到達後跳動點隱藏', !(await page.locator('#pending-dots').isVisible()));
+
+  // 對方按住 → 下半區出現中文譯文
+  await hold('#hold-them', 1500);
+  await page.waitForFunction(() => document.querySelector('#mine-dst').textContent.length > 0, null, { timeout: 15000 });
+  check('我方側出現中文譯文', true);
+
+  // 快速點擊競態：不卡在錄音
+  await hold('#hold-me', 20);
+  await page.waitForTimeout(400);
   const race = await page.evaluate(() => ({
     holding: window.__kouyiji.state.holding,
-    micEnabled: window.__kouyiji.audio.stream?.getAudioTracks().some((t) => t.enabled) ?? false,
+    mic: window.__kouyiji.audio.stream?.getAudioTracks().some((t) => t.enabled) ?? false,
   }));
-  check('快速點擊不卡在錄音狀態', race.holding === null, JSON.stringify(race));
-  check('未按住時 mic track 為靜音', race.micEnabled === false);
+  check('快速點擊不卡在錄音狀態', race.holding === null && race.mic === false, JSON.stringify(race));
 
-  // 回合 1：我說中文（按住 → 放開），按住期間要顯示錄音中提示
-  const holdBox = await page.locator('#btn-me').boundingBox();
-  await page.mouse.move(holdBox.x + holdBox.width / 2, holdBox.y + holdBox.height / 2);
-  await page.mouse.down();
-  await page.waitForTimeout(400);
-  check('按住時顯示錄音中提示', (await page.locator('.turn-state.recording').count()) > 0);
-  const micWhileHolding = await page.evaluate(() =>
-    window.__kouyiji.audio.stream.getAudioTracks().every((t) => t.enabled));
-  check('按住時 mic track 開啟', micWhileHolding);
-  await page.waitForTimeout(1100);
-  await page.mouse.up();
-  await page.waitForFunction(
-    () => document.querySelector('.bubble.me .dst')?.textContent.length > 0,
-    null, { timeout: 15000 }
-  );
-  check('我方回合：譯文氣泡出現', true);
-  const staleStates = await page.evaluate(() =>
-    document.querySelectorAll('.bubble.me .turn-state').length);
-  check('譯文出現後狀態提示移除', staleStates === 0, `${staleStates} left`);
+  // 結束通話 → 逐字稿檢視自動開啟、麥克風關閉
+  await page.click('#end-call');
+  await page.waitForSelector('#transcript[open]', { timeout: 5000 });
+  check('結束通話 → 進入逐字稿檢視', true);
+  await page.waitForFunction(() => document.querySelectorAll('.tr-turn').length >= 2, null, { timeout: 5000 });
+  check('逐字稿含雙向回合', true);
+  check('複製/分享/匯出按鈕齊全',
+    (await page.locator('#tr-copy').isVisible()) && (await page.locator('#tr-share').isVisible()) && (await page.locator('#tr-export').isVisible()));
+  await page.click('#tr-close');
+  check('結束後麥克風已關閉', await page.evaluate(() => !window.__kouyiji.audio.ready));
+  check('回到首頁', await page.locator('#view-home').isVisible());
 
-  // 單一 AudioContext 不變式（iOS 凍結問題的根治）
-  const audioState = await page.evaluate(() => {
-    const a = window.__kouyiji.audio;
-    return { ready: a.ready, ctxState: a.ctx?.state, holding: window.__kouyiji.state.holding };
+  /* ---- 聆聽模式 ---- */
+  await page.click('[data-mode="listen"]');
+  check('聆聽模式提示更新', (await page.locator('#start-label').textContent()) === '開始聆聽');
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-listen:not(.hidden)');
+  check('進入聆聽畫面（正向單區）', true);
+  await page.waitForFunction(() => document.querySelector('#listen-feed .listen-turn .dst')?.textContent.length > 0, null, { timeout: 20000 });
+  check('聆聽模式：連續字幕出現', true);
+  await page.click('#listen-toggle');
+  check('點按暫停聆聽', (await page.locator('#listen-state').textContent()) === '已暫停');
+  await page.click('#listen-end');
+  await page.waitForSelector('#transcript[open]', { timeout: 5000 });
+  await page.click('#tr-close');
+  check('聆聽結束 → 逐字稿', true);
+
+  /* ---- 無障礙抽查 ---- */
+  const a11y = await page.evaluate(() => {
+    const missing = [...document.querySelectorAll('button.icon-btn')].filter((b) => !b.getAttribute('aria-label'));
+    return missing.length;
   });
-  check('音訊引擎就緒（單一 context）', audioState.ready && audioState.ctxState === 'running', audioState.ctxState);
-  check('放開後回到未持按狀態', audioState.holding === null);
+  check('icon 按鈕皆有 aria-label', a11y === 0, `${a11y} missing`);
 
-  // 回合 2：對方說外語
-  await hold('#btn-them', 1500);
-  await page.waitForFunction(
-    () => document.querySelector('.bubble.them .dst')?.textContent.length > 0,
-    null, { timeout: 15000 }
-  );
-  check('對方回合：譯文氣泡出現', true);
-
-  // 沒按住時 chunk 一律丟棄（狀態機核心）：等 2 秒不該長出新氣泡
-  const bubblesBefore = await page.locator('.bubble').count();
-  await page.waitForTimeout(2500);
-  const bubblesAfter = await page.locator('.bubble').count();
-  check('未按住時不產生新翻譯（丟棄輸入）', bubblesAfter === bubblesBefore, `${bubblesBefore}→${bubblesAfter}`);
-
-  // 語言切換反映在按鈕上
-  await page.selectOption('#foreign-lang', 'ja');
-  const label = await page.locator('#btn-them .talk-label').textContent();
-  check('切換外語更新按鈕', label.includes('日本語'), label);
-
-  // 設定與診斷入口
-  await page.click('#gear');
-  check('設定開啟', await page.locator('#settings').isVisible());
-  check('診斷按鈕存在', await page.locator('#run-diag').isVisible());
-  await page.click('#settings-close');
-
-  // PWA 資產
+  /* ---- PWA ---- */
   const manifest = await (await page.request.get(base + 'manifest.webmanifest')).json();
   check('manifest 含 3 個圖示', manifest.icons.length === 3);
-  for (const f of ['sw.js', 'icons/icon.svg', 'icons/maskable.svg', 'icons/icon-192.png']) {
-    if (!(await page.request.get(base + f)).ok()) check(`資產 ${f}`, false);
-  }
-  check('PWA 資產齊全', true);
   const sw = await page.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration()));
   check('service worker 註冊', sw);
+  const swVer = await (await page.request.get(base + 'js/version.js')).text();
+  const shown = await page.locator('#ver').textContent();
+  check('版本徽章與快取版本一致', swVer.includes(`'${shown}'`), shown);
 
-  // 首次導引（乾淨 context）
+  // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();
   await freshPage.goto(base, { waitUntil: 'networkidle' });
   check('無設定時彈出首次導引', await freshPage.locator('#settings').isVisible());
-  check('導引含 Demo 按鈕', await freshPage.locator('#demo-start').isVisible());
   await fresh.close();
 
   check('無 JS 錯誤', pageErrors.length === 0, pageErrors.slice(0, 3).join(' | '));

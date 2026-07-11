@@ -1,31 +1,36 @@
-// 口譯機 —— 對講機式即時口譯（iOS 優先）。
+// 口譯機 v4 —— 面對面雙向對話（上下分區）＋單向聆聽。
 //
-// 回合狀態機（上一代 app 的教訓總結）：
-//   聲音「只在按住說話鈕時」送給翻譯引擎；放開才播譯文。
-//   說與聽永不重疊 → 喇叭迴授、插話中斷、閘門卡死整類問題從架構上不存在。
-//   按下按鈕的瞬間若譯文還在播 → 立刻停掉（人類搶話語意），也不會被收進去。
+// 不變的架構原則（歷代教訓）：
+//   - 通話隱喻：按「開始」才開麥克風＋建線；結束通話即全部關閉
+//   - 對話模式聲音只在「按住」時送出；聆聽模式為連續送出的單連線
+//   - 單一 AudioContext（audio.js）、實體按壓與非同步啟動解耦、window 級 catch-all
 
-import { MY_LANG, FOREIGN_LANGS, langOf } from './langs.js';
+import { MY_LANG, langOf, FOREIGN_LANGS } from './langs.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { LiveSession, MockSession } from './live.js';
 import { AudioEngine } from './audio.js';
 import { runDiagnostics, formatDiagnostics } from './diag.js';
+import { TranscriptStore, formatTxt, downloadTxt } from './transcript.js';
 
 const $ = (s) => document.querySelector(s);
 
 let settings = loadSettings();
 const audio = new AudioEngine();
+const store = new TranscriptStore();
 
 const state = {
+  phase: 'home', // 'home' | 'call' | 'listen'
+  mode: 'call', // 首頁選擇的模式
   holding: null, // null | 'me' | 'them'
-  pressed: { me: false, them: false }, // 實體按壓狀態（與非同步啟動流程解耦）
+  pressed: { me: false, them: false },
+  listening: false,
   sessions: { toForeign: null, toMine: null },
-  pending: { toForeign: [], toMine: [] }, // 連線完成前暫存的音訊（按住即說，不吃字）
-  turns: { me: null, them: null }, // 各方向最新一輪的氣泡 DOM
+  pending: { toForeign: [], toMine: [] }, // 連線完成前的音訊暫存
+  turns: { toForeign: null, toMine: null }, // 進行中的回合（逐字稿用）
+  callHadTurns: false,
   lastActivity: Date.now(),
-  startedOnce: false,
   wakeLock: null,
-  installPrompt: null,
+  pendingTimer: null,
 };
 
 /* ---------- 小工具 ---------- */
@@ -38,12 +43,10 @@ function toast(msg, ms = 4000) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), ms);
 }
 
-function useMock() {
-  return settings.demoMode || !settings.apiKey?.trim();
-}
+const useMock = () => settings.demoMode || !settings.apiKey?.trim();
+const foreign = () => langOf(settings.foreignLang);
 
 function track(kind, sec) {
-  // 極簡用量統計：今日送出/接收秒數
   const day = new Date().toISOString().slice(0, 10);
   let u;
   try { u = JSON.parse(localStorage.getItem('kouyiji.usage') || '{}'); } catch { u = {}; }
@@ -52,37 +55,83 @@ function track(kind, sec) {
   localStorage.setItem('kouyiji.usage', JSON.stringify(u));
 }
 
-/* ---------- 連線管理 ---------- */
+/* ---------- 回合（逐字稿）---------- */
+function beginTurn(tag) {
+  finalizeTurn(tag); // 前一輪若還沒收尾先存
+  state.turns[tag] = {
+    ts: Date.now(),
+    mode: state.phase,
+    side: tag === 'toForeign' ? 'me' : 'them',
+    srcLang: tag === 'toForeign' ? '中文' : foreign().name,
+    dstLang: tag === 'toForeign' ? foreign().name : '中文',
+    src: '', dst: '', saved: false,
+  };
+}
+
+function finalizeTurn(tag) {
+  const t = state.turns[tag];
+  if (!t || t.saved) return;
+  if (t.src.trim() || t.dst.trim()) {
+    t.saved = true;
+    state.callHadTurns = true;
+    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, src: t.src.trim(), dst: t.dst.trim() });
+  }
+  state.turns[tag] = null;
+}
+
+function finalizeAllTurns() {
+  finalizeTurn('toForeign');
+  finalizeTurn('toMine');
+}
+
+/* ---------- 顯示路由 ---------- */
+// toForeign（我說）→ 上半（對方讀）；toMine（對方說/聆聽）→ 下半或聆聽 feed
+function routeText(tag, kind, text) {
+  state.lastActivity = Date.now();
+  const t = state.turns[tag] || (beginTurn(tag), state.turns[tag]);
+  t[kind === 'input' ? 'src' : 'dst'] += text;
+
+  if (kind === 'output') hidePendingDots();
+
+  if (state.phase === 'listen') {
+    renderListenTurn(t);
+    return;
+  }
+  const side = tag === 'toForeign' ? 'theirs' : 'mine';
+  $(`#${side}-src`).textContent = t.src;
+  $(`#${side}-dst`).textContent = t.dst;
+  $(`#${side}-src-row`).classList.toggle('show', Boolean(t.src));
+}
+
+/* ---------- 連線 ---------- */
 function makeSession(tag) {
   const target = tag === 'toForeign' ? settings.foreignLang : MY_LANG;
-  const session = useMock()
-    ? new MockSession({ tag })
-    : new LiveSession({ apiKey: settings.apiKey.trim(), target, tag });
+  const session = useMock() ? new MockSession({ tag }) : new LiveSession({ apiKey: settings.apiKey.trim(), target, tag });
 
   session.addEventListener('status', (e) => {
-    renderStatus();
+    renderLive();
     if (e.detail.state === 'open') flushPending(tag);
   });
-  session.addEventListener('input-text', (e) => appendText(tag, 'src', e.detail.text));
-  session.addEventListener('output-text', (e) => appendText(tag, 'dst', e.detail.text));
+  session.addEventListener('input-text', (e) => routeText(tag, 'input', e.detail.text));
+  session.addEventListener('output-text', (e) => routeText(tag, 'output', e.detail.text));
   session.addEventListener('audio', (e) => {
     const sec = audio.playBase64(e.detail.base64);
     if (sec) track('recv', sec);
     state.lastActivity = Date.now();
   });
+  session.addEventListener('turn-complete', () => finalizeTurn(tag));
   session.addEventListener('fatal', (e) => {
     const reason = e.detail.reason || '';
-    if (/quota|exceeded|429/i.test(reason)) toast('額度已用盡（免費層每日限額），明天再試或檢查方案。', 8000);
-    else if (/api key|401|403|PERMISSION/i.test(reason)) toast('API key 無效或無權限：設定 → 連線診斷可找原因。', 8000);
+    if (/quota|exceeded|429/i.test(reason)) toast('額度已用盡（免費層每日限額）。', 8000);
+    else if (/api key|401|403|PERMISSION/i.test(reason)) toast('API key 無效或無權限：設定 → 連線診斷。', 8000);
     else toast(`連線失敗：${reason}（設定 → 連線診斷）`, 8000);
-    disconnectSessions();
-    renderStatus();
+    endSession(true);
   });
   return session;
 }
 
-function ensureSessions() {
-  for (const tag of ['toForeign', 'toMine']) {
+function ensureSessions(tags) {
+  for (const tag of tags) {
     const s = state.sessions[tag];
     if (!s || s.state === 'closed' || s.state === 'error') {
       state.sessions[tag] = makeSession(tag);
@@ -91,7 +140,7 @@ function ensureSessions() {
   }
 }
 
-function disconnectSessions() {
+function closeSessions() {
   for (const tag of ['toForeign', 'toMine']) {
     state.sessions[tag]?.close();
     state.sessions[tag] = null;
@@ -109,79 +158,121 @@ function flushPending(tag) {
   }
 }
 
-/* ---------- 音訊 chunk 路由（狀態機核心：沒按住 = 一律丟棄） ---------- */
-audio.onChunk = ({ int16, rms }) => {
-  $('#meter').style.setProperty('--level', Math.min(1, rms * 14));
-  if (!state.holding) return;
-  state.lastActivity = Date.now();
-  const tag = state.holding === 'me' ? 'toForeign' : 'toMine';
+function sendChunk(tag, int16) {
   const s = state.sessions[tag];
   if (s && s.state === 'open') {
     flushPending(tag);
     if (s.sendAudio(int16)) track('sent', int16.length / 16000);
   } else {
     state.pending[tag].push(int16);
-    if (state.pending[tag].length > 50) state.pending[tag].shift(); // 最多 5 秒
+    if (state.pending[tag].length > 50) state.pending[tag].shift();
+  }
+}
+
+/* ---------- 音訊 chunk 路由 ---------- */
+audio.onChunk = ({ int16, rms }) => {
+  if (state.phase === 'call' && state.holding) {
+    setWave(state.holding === 'me' ? 'wave-me' : 'wave-them', rms);
+    sendChunk(state.holding === 'me' ? 'toForeign' : 'toMine', int16);
+  } else if (state.phase === 'listen' && state.listening) {
+    setWave('wave-listen', rms);
+    sendChunk('toMine', int16);
   }
 };
 
 audio.onMicLost = () => {
-  toast('麥克風中斷了，請重新按住說話。');
-  releaseHold();
+  toast('麥克風中斷了。');
+  endSession(true);
 };
 
-/* ---------- 按住說話 ---------- */
-// 重要教訓：beginHold 是非同步的（首次按下要等 getUserMedia 權限對話框）。
-// 手指可能在 await 期間就抬起（例如去點「允許」），所以：
-//   1. pressed[] 追蹤實體按壓，await 之後必須重新確認還按著才進入錄音
-//   2. window 層級的 pointerup/blur catch-all，任何情況都能結束錄音
-//   3. mic track 只在按住期間 enabled（audio.setMicEnabled）
-async function beginHold(side, btn) {
-  if (state.holding) return;
+function setWave(id, rms) {
+  document.getElementById(id)?.style.setProperty('--level', Math.min(1, rms * 14).toFixed(3));
+}
+
+function clearWaves() {
+  for (const id of ['wave-me', 'wave-them', 'wave-listen']) {
+    document.getElementById(id)?.style.setProperty('--level', '0');
+  }
+}
+
+/* ---------- 通話開始 / 結束 ---------- */
+async function startSession(mode) {
   try {
-    // 第一次按下（使用者手勢）啟動整個音訊引擎 —— iOS 的唯一正確時機
-    await audio.start();
+    await audio.start(); // 使用者手勢中開麥克風（通話隱喻：按下才開）
   } catch (err) {
-    state.pressed[side] = false;
-    toast(err?.name === 'NotAllowedError' ? '需要麥克風權限才能口譯。' : `無法啟動麥克風：${err?.message || err}`, 6000);
+    toast(err?.name === 'NotAllowedError' ? '需要麥克風權限。' : `無法啟動麥克風：${err?.message || err}`, 6000);
     return;
   }
-  if (!state.startedOnce) {
-    state.startedOnce = true;
-    acquireWakeLock();
-    startIdleWatch();
+  audio.setMicEnabled(false);
+  state.phase = mode;
+  state.callHadTurns = false;
+  state.lastActivity = Date.now();
+  document.body.dataset.phase = mode;
+  $('#view-home').classList.add('hidden');
+  $('#view-call').classList.toggle('hidden', mode !== 'call');
+  $('#view-listen').classList.toggle('hidden', mode !== 'listen');
+  ensureSessions(mode === 'call' ? ['toForeign', 'toMine'] : ['toMine']);
+  if (mode === 'listen') {
+    $('#listen-feed').innerHTML = '';
+    setListening(true); // 進入即開始聆聽，可點按暫停
   }
-  // await 期間手指已放開（權限對話框、快速點擊）→ 不進入錄音
-  if (!state.pressed[side]) {
-    audio.setMicEnabled(false);
-    renderStatus();
-    return;
-  }
-  audio.stopPlayback(); // 搶話：立刻停掉還沒播完的譯文
-  ensureSessions();
+  acquireWakeLock();
+  renderLive();
+}
+
+async function endSession(silent = false) {
+  releaseHold();
+  setListening(false);
+  finalizeAllTurns();
+  hidePendingDots();
+  closeSessions();
+  await audio.close(); // 通話隱喻：結束就關麥克風，iOS 錄音指示燈熄滅
+  clearWaves();
+  const hadTurns = state.callHadTurns;
+  state.phase = 'home';
+  document.body.dataset.phase = 'home';
+  $('#view-call').classList.add('hidden');
+  $('#view-listen').classList.add('hidden');
+  $('#view-home').classList.remove('hidden');
+  // 清空面對面殘留內容
+  for (const id of ['theirs-src', 'theirs-dst', 'mine-src', 'mine-dst']) $(`#${id}`).textContent = '';
+  $('#theirs-src-row').classList.remove('show');
+  $('#mine-src-row').classList.remove('show');
+  renderLive();
+  if (!silent && hadTurns) openTranscript(); // 結束後進入逐字稿檢視
+}
+
+/* ---------- 按住說話（沿用歷代競態防線） ---------- */
+async function beginHold(side, btn) {
+  if (state.phase !== 'call' || state.holding) return;
+  audio.kick();
+  if (!state.pressed[side]) return; // 按下後已放開
+  audio.stopPlayback(); // 搶話：停掉還沒播完的譯文
   state.holding = side;
   state.lastActivity = Date.now();
   audio.setMicEnabled(true);
   btn.classList.add('holding');
   document.body.dataset.holding = side;
-  newTurn(side);
-  renderStatus();
+  hidePendingDots();
+  beginTurn(side === 'me' ? 'toForeign' : 'toMine');
+  renderLive();
 }
 
 function releaseHold() {
   state.pressed.me = false;
   state.pressed.them = false;
   if (!state.holding) return;
-  const side = state.holding;
   state.holding = null;
   audio.setMicEnabled(false);
   document.body.dataset.holding = '';
-  $(side === 'me' ? '#btn-me' : '#btn-them').classList.remove('holding');
-  setTurnState(side, 'pending');
-  renderStatus();
+  $('#hold-me').classList.remove('holding');
+  $('#hold-them').classList.remove('holding');
+  clearWaves();
+  showPendingDots(); // 放開 → 翻譯中跳動點（固定高度區）
+  renderLive();
 }
 
-function bindTalkButton(btn, side) {
+function bindHold(btn, side) {
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     btn.setPointerCapture?.(e.pointerId);
@@ -196,115 +287,120 @@ function bindTalkButton(btn, side) {
   }
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 }
-
-// catch-all：不管指標事件在哪裡結束、視窗失焦（權限對話框），一律結束錄音
 for (const evt of ['pointerup', 'pointercancel']) {
   window.addEventListener(evt, () => releaseHold(), true);
 }
 window.addEventListener('blur', () => releaseHold());
 
-/* ---------- 字幕氣泡（含 錄音中→翻譯中→完成 的狀態提示） ---------- */
-function newTurn(side) {
-  const feed = $('#feed');
-  $('#feed-hint')?.remove();
-  const bubble = document.createElement('div');
-  bubble.className = `bubble ${side}`;
-  bubble.innerHTML = '<div class="src"></div><div class="dst"></div><div class="turn-state"></div>';
-  feed.appendChild(bubble);
-  while (feed.children.length > 120) feed.firstChild.remove();
-  state.turns[side] = bubble;
-  setTurnState(side, 'recording');
-  feed.scrollTop = feed.scrollHeight;
+/* ---------- 翻譯中跳動點（固定高度，不跳版面） ---------- */
+function showPendingDots() {
+  if (state.phase !== 'call') return;
+  $('#pending-dots').classList.remove('hidden');
+  clearTimeout(state.pendingTimer);
+  state.pendingTimer = setTimeout(hidePendingDots, 12000);
+}
+function hidePendingDots() {
+  clearTimeout(state.pendingTimer);
+  $('#pending-dots')?.classList.add('hidden');
 }
 
-function setTurnState(side, phase) {
-  const bubble = state.turns[side];
-  if (!bubble) return;
-  const el = bubble.querySelector('.turn-state');
-  if (!el) return;
-  clearTimeout(bubble._stateTimer);
-  if (phase === 'recording') {
-    el.textContent = '🔴 錄音中…（放開結束）';
-    el.className = 'turn-state recording';
-  } else if (phase === 'pending') {
-    // 已放開：等待譯文；太久沒回應要明講，不能讓使用者以為還在錄
-    el.textContent = '✋ 已停止錄音 · 翻譯中…';
-    el.className = 'turn-state pending';
-    bubble._stateTimer = setTimeout(() => {
-      if (bubble.querySelector('.dst').textContent) return;
-      el.textContent = '沒有收到翻譯（可能沒收到聲音），請再按住試一次';
-      el.className = 'turn-state failed';
-    }, 12000);
-  } else {
-    el.remove();
+/* ---------- 聆聽模式 ---------- */
+function setListening(on, skipUi = false) {
+  state.listening = on;
+  audio.setMicEnabled(on && state.phase === 'listen');
+  if (skipUi) return;
+  const btn = $('#listen-toggle');
+  btn.classList.toggle('on', on);
+  btn.querySelector('span').textContent = on ? '停止聆聽' : '繼續聆聽';
+  btn.setAttribute('aria-label', on ? '停止聆聽' : '繼續聆聽');
+  $('#listen-state').textContent = on ? '聆聽中' : '已暫停';
+  document.body.dataset.listening = on ? 'on' : '';
+  if (!on) clearWaves();
+}
+
+function renderListenTurn(turn) {
+  let el = turn._el;
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'listen-turn';
+    el.innerHTML = '<div class="dst"></div><div class="src"></div>';
+    $('#listen-feed').appendChild(el);
+    while ($('#listen-feed').children.length > 80) $('#listen-feed').firstChild.remove();
+    turn._el = el;
   }
+  el.querySelector('.dst').textContent = turn.dst;
+  el.querySelector('.src').textContent = turn.src;
+  $('#listen-feed').scrollTop = $('#listen-feed').scrollHeight;
 }
 
-function appendText(tag, kind, text) {
-  const side = tag === 'toForeign' ? 'me' : 'them';
-  if (!state.turns[side]) newTurn(side);
-  const el = state.turns[side].querySelector(`.${kind}`);
-  el.textContent += text;
-  if (kind === 'dst') setTurnState(side, 'done'); // 譯文開始出現 → 移除狀態提示
-  $('#feed').scrollTop = $('#feed').scrollHeight;
-  state.lastActivity = Date.now();
+/* ---------- 逐字稿檢視 ---------- */
+async function openTranscript() {
+  finalizeAllTurns();
+  const turns = await store.all();
+  const list = $('#tr-list');
+  list.innerHTML = '';
+  if (turns.length === 0) {
+    list.innerHTML = '<p class="tr-empty">還沒有紀錄。逐字稿只存在這台裝置。</p>';
+  }
+  for (const t of turns.slice(-200)) {
+    const div = document.createElement('div');
+    div.className = `tr-turn ${t.side}`;
+    const time = new Date(t.ts).toLocaleTimeString('zh-TW', { hour12: false, hour: '2-digit', minute: '2-digit' });
+    div.innerHTML = '<div class="tr-meta"></div><div class="tr-src"></div><div class="tr-dst"></div>';
+    div.querySelector('.tr-meta').textContent = `${time} · ${t.side === 'me' ? `中文 → ${t.dstLang}` : `${t.srcLang} → 中文`}`;
+    div.querySelector('.tr-src').textContent = t.src;
+    div.querySelector('.tr-dst').textContent = t.dst;
+    list.appendChild(div);
+  }
+  $('#transcript').showModal();
+  list.scrollTop = list.scrollHeight;
 }
 
-/* ---------- 狀態列 ---------- */
-function renderStatus() {
-  const dot = $('#dot');
-  const text = $('#status-text');
-  const states = ['toForeign', 'toMine'].map((t) => state.sessions[t]?.state).filter(Boolean);
-  let s = 'idle';
-  if (state.holding) s = 'talking';
-  else if (states.includes('error')) s = 'error';
-  else if (states.includes('connecting') || states.includes('reconnecting')) s = 'connecting';
-  else if (states.includes('open')) s = 'open';
-  dot.dataset.state = s;
-  const demo = useMock() ? 'Demo · ' : '';
-  text.textContent = demo + ({
-    idle: '按住下方按鈕開始',
-    connecting: '連線中…',
-    open: '就緒',
-    talking: state.holding === 'me' ? '你說話中…' : '對方說話中…',
-    error: '連線錯誤',
-  }[s]);
-}
-
-/* ---------- 省額度：閒置自動斷線（按下按鈕自動重連） ---------- */
-let idleWatch = null;
-function startIdleWatch() {
-  clearInterval(idleWatch);
-  idleWatch = setInterval(() => {
-    const min = settings.idleDisconnectMin;
-    if (!min || min <= 0) return;
-    const hasOpen = ['toForeign', 'toMine'].some((t) => state.sessions[t]?.state === 'open');
-    if (hasOpen && !state.holding && !audio.isSpeaking &&
-        Date.now() - state.lastActivity > min * 60_000) {
-      disconnectSessions();
-      audio.close(); // 連麥克風一起關：iOS 的橘色錄音指示燈熄滅，下次按住再重啟
-      renderStatus();
-      toast('閒置已自動斷線省額度（麥克風已關閉），按住按鈕即恢復。');
+function bindTranscript() {
+  $('#open-transcript').addEventListener('click', openTranscript);
+  $('#tr-close').addEventListener('click', () => $('#transcript').close());
+  $('#tr-copy').addEventListener('click', async () => {
+    await navigator.clipboard.writeText(formatTxt(await store.all())).catch(() => {});
+    toast('逐字稿已複製。');
+  });
+  $('#tr-share').addEventListener('click', async () => {
+    const text = formatTxt(await store.all());
+    if (navigator.share) {
+      await navigator.share({ title: '口譯機逐字稿', text }).catch(() => {});
+    } else {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      toast('此裝置不支援分享，已改為複製。');
     }
-  }, 10_000);
+  });
+  $('#tr-export').addEventListener('click', async () => {
+    downloadTxt(`口譯逐字稿-${new Date().toISOString().slice(0, 10)}.txt`, formatTxt(await store.all()));
+  });
+  $('#tr-clear').addEventListener('click', async () => {
+    if (confirm('確定清除所有逐字稿？')) {
+      await store.clear();
+      openTranscript();
+    }
+  });
 }
 
-/* ---------- Wake Lock：口譯中螢幕不休眠 ---------- */
-async function acquireWakeLock() {
-  try {
-    state.wakeLock = await navigator.wakeLock?.request('screen');
-  } catch { /* 不支援就算了 */ }
+/* ---------- 狀態顯示 ---------- */
+function renderLive() {
+  const states = ['toForeign', 'toMine'].map((t) => state.sessions[t]?.state).filter(Boolean);
+  const connecting = states.includes('connecting') || states.includes('reconnecting');
+  document.body.dataset.conn = connecting ? 'connecting' : states.includes('open') ? 'open' : 'idle';
+  if (state.phase === 'listen' && connecting) $('#listen-state').textContent = '連線中…';
 }
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && state.startedOnce) acquireWakeLock();
-});
 
-/* ---------- 語言切換 ---------- */
+/* ---------- 語言 ---------- */
 function renderLangUI() {
-  const lang = langOf(settings.foreignLang);
-  $('#btn-them .talk-label').textContent = `${lang.flag} ${lang.native}`;
-  $('#btn-them .talk-sub').textContent = `對方按住說${lang.name} → 中文`;
-  $('#btn-me .talk-sub').textContent = `按住說中文 → ${lang.name}`;
+  const lang = foreign();
+  $('#theirs-lang').textContent = lang.native;
+  $('#theirs-live').textContent = lang.ui.live;
+  $('#theirs-src-label').textContent = lang.ui.original;
+  $('#hold-them-label').textContent = lang.ui.hold;
+  $('#hold-them').setAttribute('aria-label', lang.ui.hold);
+  $('#pair-foreign').textContent = lang.native;
+  $('#listen-lang').textContent = `${lang.native} → 中文`;
 }
 
 function fillLangSelect() {
@@ -320,14 +416,32 @@ function fillLangSelect() {
   sel.addEventListener('change', () => {
     settings = saveSettings({ foreignLang: sel.value });
     renderLangUI();
-    // 目標語言變了 → 換掉 toForeign 連線（下次按住時建立）
+    // 換語言 → toForeign 連線下次建立時採用新目標
     state.sessions.toForeign?.close();
     state.sessions.toForeign = null;
-    renderStatus();
   });
 }
 
-/* ---------- 設定面板 ---------- */
+/* ---------- 省額度：閒置自動結束 ---------- */
+setInterval(() => {
+  const min = settings.idleDisconnectMin;
+  if (!min || min <= 0 || state.phase === 'home') return;
+  if (!state.holding && !state.listening && !audio.isSpeaking &&
+      Date.now() - state.lastActivity > min * 60_000) {
+    toast('閒置已自動結束（麥克風已關閉）。');
+    endSession(true);
+  }
+}, 10_000);
+
+/* ---------- Wake Lock ---------- */
+async function acquireWakeLock() {
+  try { state.wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* unsupported */ }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.phase !== 'home') acquireWakeLock();
+});
+
+/* ---------- 設定 ---------- */
 function openSettings(firstRun = false) {
   $('#welcome').classList.toggle('hidden', !firstRun);
   $('#set-key').value = settings.apiKey;
@@ -336,8 +450,7 @@ function openSettings(firstRun = false) {
   $('#set-idle').value = settings.idleDisconnectMin;
   let u = {};
   try { u = JSON.parse(localStorage.getItem('kouyiji.usage') || '{}'); } catch { /* none */ }
-  $('#usage-line').textContent =
-    u.day ? `今日已用：送出 ${Math.round(u.sent || 0)} 秒、接收 ${Math.round(u.recv || 0)} 秒` : '今日尚未使用';
+  $('#usage-line').textContent = u.day ? `今日已用：送出 ${Math.round(u.sent || 0)} 秒、接收 ${Math.round(u.recv || 0)} 秒` : '今日尚未使用';
   $('#settings').showModal();
 }
 
@@ -352,15 +465,13 @@ function bindSettings() {
       idleDisconnectMin: Math.max(0, parseFloat($('#set-idle').value) || 0),
     });
     document.documentElement.style.setProperty('--font-scale', settings.fontScale);
-    disconnectSessions(); // 讓新設定（key/demo）下次按住時生效
+    closeSessions();
     $('#settings').close();
-    renderStatus();
   });
   $('#demo-start').addEventListener('click', () => {
     settings = saveSettings({ demoMode: true });
     $('#settings').close();
-    renderStatus();
-    toast('Demo 模式已開啟：按住下方按鈕、隨便說幾個字再放開試試。');
+    toast('Demo 模式已開啟，按「開始對話」試玩。');
   });
   $('#run-diag').addEventListener('click', async () => {
     const box = $('#diag-results');
@@ -384,27 +495,33 @@ function bindSettings() {
       toast('診斷結果已複製。');
     };
   });
-  $('#clear-feed').addEventListener('click', () => {
-    $('#feed').innerHTML = '';
-    state.turns = { me: null, them: null };
-    $('#settings').close();
-  });
 }
 
-/* ---------- PWA ---------- */
-function bindPwa() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    state.installPrompt = e;
-    $('#install').classList.remove('hidden');
+/* ---------- 首頁 ---------- */
+function bindHome() {
+  for (const btn of document.querySelectorAll('#mode-seg .seg')) {
+    btn.addEventListener('click', () => {
+      state.mode = btn.dataset.mode;
+      for (const b of document.querySelectorAll('#mode-seg .seg')) {
+        const active = b === btn;
+        b.classList.toggle('active', active);
+        b.setAttribute('aria-selected', String(active));
+      }
+      $('#mode-hint').textContent = state.mode === 'call'
+        ? '兩人面對面：手機平放中間，各自按住自己那側說話'
+        : '聽演講、導覽：對方的外語即時變成中文字幕';
+      $('#start-label').textContent = state.mode === 'call' ? '開始對話' : '開始聆聽';
+    });
+  }
+  $('#start-btn').addEventListener('click', () => {
+    if (!settings.apiKey && !settings.demoMode) { openSettings(true); return; }
+    startSession(state.mode);
   });
-  $('#install').addEventListener('click', async () => {
-    if (!state.installPrompt) return;
-    state.installPrompt.prompt();
-    await state.installPrompt.userChoice;
-    state.installPrompt = null;
-    $('#install').classList.add('hidden');
+  $('#end-call').addEventListener('click', () => endSession());
+  $('#listen-end').addEventListener('click', () => endSession());
+  $('#listen-toggle').addEventListener('click', () => setListening(!state.listening));
+  $('#pair').addEventListener('click', () => {
+    toast('要換語言請先結束通話，回首頁選擇。', 3500);
   });
 }
 
@@ -414,14 +531,14 @@ function boot() {
   document.documentElement.style.setProperty('--font-scale', settings.fontScale);
   fillLangSelect();
   renderLangUI();
-  bindTalkButton($('#btn-me'), 'me');
-  bindTalkButton($('#btn-them'), 'them');
+  bindHold($('#hold-me'), 'me');
+  bindHold($('#hold-them'), 'them');
+  bindHome();
   bindSettings();
-  bindPwa();
-  renderStatus();
+  bindTranscript();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   if (!settings.apiKey && !settings.demoMode) openSettings(true);
-  // 測試/除錯把手
-  window.__kouyiji = { audio, state, get settings() { return settings; } };
+  window.__kouyiji = { audio, state, store, get settings() { return settings; } };
 }
 
 boot();

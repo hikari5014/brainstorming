@@ -230,6 +230,13 @@ export class MockSession extends EventTarget {
     if (this.state !== 'open') return false;
     this.sentSeconds += int16.length / 16000;
     this.chunks += 1;
+    // 連續串流（聆聽模式）沒有停頓 → 每 ~2.5 秒也觸發一句
+    if (this.chunks >= 25) {
+      this.chunks = 0;
+      clearTimeout(this.gapTimer);
+      this.playPhrase();
+      return true;
+    }
     clearTimeout(this.gapTimer);
     this.gapTimer = setTimeout(() => {
       if (this.chunks >= 3) this.playPhrase();

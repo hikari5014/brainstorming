@@ -16,6 +16,7 @@ const SHELL = [
   './js/diag.js',
   './js/capture-worklet.js',
   './js/version.js',
+  './js/transcript.js',
   './icons/icon.svg',
   './icons/maskable.svg',
   './icons/icon-192.png',

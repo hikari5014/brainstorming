@@ -3,17 +3,28 @@
 
 export const MY_LANG = 'zh-Hant';
 
+// ui.*：顯示給「該語言讀者」看的介面文字（規格：標籤語言對應讀者的語言）
 export const FOREIGN_LANGS = [
-  { code: 'en',  name: '英語',    native: 'English',    flag: '🇺🇸' },
-  { code: 'ja',  name: '日語',    native: '日本語',      flag: '🇯🇵' },
-  { code: 'ko',  name: '韓語',    native: '한국어',      flag: '🇰🇷' },
-  { code: 'vi',  name: '越南語',  native: 'Tiếng Việt', flag: '🇻🇳' },
-  { code: 'th',  name: '泰語',    native: 'ไทย',        flag: '🇹🇭' },
-  { code: 'id',  name: '印尼語',  native: 'Indonesia',  flag: '🇮🇩' },
-  { code: 'fil', name: '菲律賓語', native: 'Filipino',   flag: '🇵🇭' },
-  { code: 'ms',  name: '馬來語',  native: 'Melayu',     flag: '🇲🇾' },
-  { code: 'es',  name: '西班牙語', native: 'Español',    flag: '🇪🇸' },
-  { code: 'fr',  name: '法語',    native: 'Français',   flag: '🇫🇷' },
+  { code: 'en',  name: '英語',    native: 'English',    flag: '🇺🇸',
+    ui: { hold: 'Hold to speak', original: 'Original', live: 'Interpreting' } },
+  { code: 'ja',  name: '日語',    native: '日本語',      flag: '🇯🇵',
+    ui: { hold: '押しながら話す', original: '原文', live: '通訳中' } },
+  { code: 'ko',  name: '韓語',    native: '한국어',      flag: '🇰🇷',
+    ui: { hold: '누른 채 말하기', original: '원문', live: '통역 중' } },
+  { code: 'vi',  name: '越南語',  native: 'Tiếng Việt', flag: '🇻🇳',
+    ui: { hold: 'Giữ để nói', original: 'Bản gốc', live: 'Đang phiên dịch' } },
+  { code: 'th',  name: '泰語',    native: 'ไทย',        flag: '🇹🇭',
+    ui: { hold: 'กดค้างเพื่อพูด', original: 'ต้นฉบับ', live: 'กำลังแปล' } },
+  { code: 'id',  name: '印尼語',  native: 'Indonesia',  flag: '🇮🇩',
+    ui: { hold: 'Tahan untuk bicara', original: 'Asli', live: 'Menerjemahkan' } },
+  { code: 'fil', name: '菲律賓語', native: 'Filipino',   flag: '🇵🇭',
+    ui: { hold: 'Pindutin para magsalita', original: 'Orihinal', live: 'Nagsasalin' } },
+  { code: 'ms',  name: '馬來語',  native: 'Melayu',     flag: '🇲🇾',
+    ui: { hold: 'Tahan untuk bercakap', original: 'Asal', live: 'Mentafsir' } },
+  { code: 'es',  name: '西班牙語', native: 'Español',    flag: '🇪🇸',
+    ui: { hold: 'Mantén para hablar', original: 'Original', live: 'Interpretando' } },
+  { code: 'fr',  name: '法語',    native: 'Français',   flag: '🇫🇷',
+    ui: { hold: 'Maintenir pour parler', original: 'Original', live: 'Interprétation' } },
 ];
 
 const byCode = new Map(FOREIGN_LANGS.map((l) => [l.code, l]));
