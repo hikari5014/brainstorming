@@ -199,6 +199,32 @@ try {
   const shown = await page.locator('#ver').textContent();
   check('版本徽章與快取版本一致', swVer.includes(`'${shown}'`), shown);
 
+  /* ---- 點擊收音模式 ---- */
+  await page.click('[data-mode="call"]');
+  await page.click('#gear');
+  await page.selectOption('#set-talk-mode', 'toggle');
+  await page.click('#settings-save');
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  check('點擊模式按鈕文字', (await page.locator('#hold-me-label').textContent()) === '點擊說話');
+  await page.click('#hold-me');
+  await page.waitForTimeout(600);
+  const tOn = await page.evaluate(() => window.__kouyiji.state.holding);
+  check('點一下開始收音（放開不中斷）', tOn === 'me', String(tOn));
+  check('收音中顯示再點結束', (await page.locator('#hold-me-label').textContent()).includes('再點一下結束'));
+  await page.click('#hold-me');
+  const tOff = await page.evaluate(() => window.__kouyiji.state.holding);
+  check('再點一下結束收音', tOff === null, String(tOff));
+  await page.click('#hold-them');
+  await page.waitForTimeout(400);
+  await page.click('#hold-me'); // 換邊：自動結束對方、開始我方
+  const swapped = await page.evaluate(() => window.__kouyiji.state.holding);
+  check('點另一側自動換邊', swapped === 'me', String(swapped));
+  await page.click('#hold-me');
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();

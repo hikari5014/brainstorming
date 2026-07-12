@@ -10,6 +10,7 @@ const DEFAULTS = {
   demoMode: false,
   fontScale: 1,
   idleDisconnectMin: 5, // 幾分鐘沒對話就斷線省額度（按鈕按下自動重連）
+  talkMode: 'hold', // 'hold' 按住說話 | 'toggle' 點一下開始、再點一下結束（全手動，無自動判斷）
   voiceAfterRelease: true, // 放開錄音鈕後，等翻譯完整才播語音（字幕仍即時）
   voiceIdleSec: 1.4, // 翻譯文字停止增長幾秒 → 判定「翻譯完整」開播
   voiceMaxWaitSec: 15, // 放開後最長等待秒數（保險絲，超過必定開播）

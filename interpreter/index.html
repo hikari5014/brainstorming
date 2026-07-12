@@ -108,7 +108,7 @@
       <div class="wave" id="wave-me" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
       <button class="hold-btn" id="hold-me" aria-label="按住說話">
         <svg width="22" height="22"><use href="#i-mic"/></svg>
-        <span>按住說話</span>
+        <span id="hold-me-label">按住說話</span>
       </button>
     </section>
   </div>
@@ -156,6 +156,13 @@
       <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
     </label>
     <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
+    <label class="field">說話按鈕操作方式
+      <select id="set-talk-mode" aria-label="說話按鈕操作方式">
+        <option value="hold">按住說話（放開即結束）</option>
+        <option value="toggle">點一下開始・再點一下結束</option>
+      </select>
+      <small>點擊式完全由你手動控制開始/結束，不做任何自動判斷</small>
+    </label>
     <label class="field checkbox">
       <input type="checkbox" id="set-voice-after" />
       <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>

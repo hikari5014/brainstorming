@@ -268,6 +268,7 @@ async function beginHold(side, btn) {
   document.body.dataset.holding = side;
   hidePendingDots();
   beginTurn(side === 'me' ? 'toForeign' : 'toMine');
+  updateTalkLabels();
   renderLive();
 }
 
@@ -283,6 +284,7 @@ function releaseHold() {
   $('#hold-them').classList.remove('holding');
   clearWaves();
   showPendingDots(); // 放開 → 翻譯中跳動點（固定高度區）
+  updateTalkLabels();
   renderLive();
 
   // 放開得太快時，伺服器的 VAD 等不到「靜音」就無法把句子收尾（翻譯只出現一半的根因）
@@ -354,22 +356,36 @@ function watchPlaybackThenRecycle(tag) {
 function bindHold(btn, side) {
   btn.addEventListener('pointerdown', (e) => {
     e.preventDefault();
+    if (settings.talkMode === 'toggle') return; // 點擊式走 click
     btn.setPointerCapture?.(e.pointerId);
     state.pressed[side] = true;
     beginHold(side, btn);
   });
   for (const evt of ['pointerup', 'pointercancel']) {
     btn.addEventListener(evt, () => {
+      if (settings.talkMode === 'toggle') return;
       state.pressed[side] = false;
       if (state.holding === side) releaseHold();
     });
   }
+  // 點擊式：點一下開始、再點一下結束（全手動，無任何自動判斷）
+  btn.addEventListener('click', () => {
+    if (settings.talkMode !== 'toggle' || state.phase !== 'call') return;
+    if (state.holding === side) {
+      releaseHold();
+    } else {
+      if (state.holding) releaseHold(); // 換邊：先結束對方那輪
+      state.pressed[side] = true;
+      beginHold(side, btn);
+    }
+  });
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 }
+// 全域 catch-all 只適用於按住式；點擊式的結束必須完全由使用者手動觸發
 for (const evt of ['pointerup', 'pointercancel']) {
-  window.addEventListener(evt, () => releaseHold(), true);
+  window.addEventListener(evt, () => { if (settings.talkMode !== 'toggle') releaseHold(); }, true);
 }
-window.addEventListener('blur', () => releaseHold());
+window.addEventListener('blur', () => { if (settings.talkMode !== 'toggle') releaseHold(); });
 
 /* ---------- 翻譯中跳動點（固定高度，不跳版面） ---------- */
 function showPendingDots() {
@@ -469,14 +485,25 @@ function renderLive() {
   if (state.phase === 'listen' && connecting) $('#listen-state').textContent = '連線中…';
 }
 
+// 按鈕文字依操作模式與狀態切換（點擊式錄音中顯示「再點一下結束」）
+function updateTalkLabels() {
+  const lang = foreign();
+  const toggle = settings.talkMode === 'toggle';
+  const meText = state.holding === 'me' && toggle ? '⏹ 再點一下結束' : (toggle ? '點擊說話' : '按住說話');
+  const themText = state.holding === 'them' && toggle ? `⏹ ${lang.ui.stop}` : (toggle ? lang.ui.tap : lang.ui.hold);
+  $('#hold-me-label').textContent = meText;
+  $('#hold-me').setAttribute('aria-label', meText);
+  $('#hold-them-label').textContent = themText;
+  $('#hold-them').setAttribute('aria-label', themText);
+}
+
 /* ---------- 語言 ---------- */
 function renderLangUI() {
   const lang = foreign();
   $('#theirs-lang').textContent = lang.native;
   $('#theirs-live').textContent = lang.ui.live;
   $('#theirs-src-label').textContent = lang.ui.original;
-  $('#hold-them-label').textContent = lang.ui.hold;
-  $('#hold-them').setAttribute('aria-label', lang.ui.hold);
+  updateTalkLabels();
   $('#pair-foreign').textContent = lang.native;
   $('#listen-lang').textContent = `${lang.native} → 中文`;
 }
@@ -530,6 +557,7 @@ function openSettings(firstRun = false) {
   $('#welcome').classList.toggle('hidden', !firstRun);
   $('#set-key').value = settings.apiKey;
   $('#set-demo').checked = settings.demoMode;
+  $('#set-talk-mode').value = settings.talkMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
   $('#set-voice-idle').value = settings.voiceIdleSec;
   $('#set-voice-max').value = settings.voiceMaxWaitSec;
@@ -564,6 +592,7 @@ function bindSettings() {
     settings = saveSettings({
       apiKey: $('#set-key').value.trim(),
       demoMode: $('#set-demo').checked,
+      talkMode: $('#set-talk-mode').value,
       voiceAfterRelease: $('#set-voice-after').checked,
       voiceIdleSec: Math.min(3, Math.max(0.5, parseFloat($('#set-voice-idle').value) || 1.4)),
       voiceMaxWaitSec: Math.min(30, Math.max(3, parseFloat($('#set-voice-max').value) || 15)),
@@ -574,6 +603,7 @@ function bindSettings() {
     });
     document.documentElement.style.setProperty('--font-scale', settings.fontScale);
     applyTheme();
+    updateTalkLabels();
     if (!settings.voiceAfterRelease) audio.endVoiceHold(); // 關閉功能時放出可能的暫存
     closeSessions();
     $('#settings').close();
