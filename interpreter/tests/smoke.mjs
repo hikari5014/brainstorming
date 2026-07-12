@@ -151,6 +151,24 @@ try {
   await page.click('#tr-close');
   check('聆聽結束 → 逐字稿', true);
 
+  /* ---- 語音完整偵測參數可調 ---- */
+  await page.click('#gear');
+  check('偵測參數滑桿存在', await page.locator('#set-voice-idle').isVisible());
+  await page.evaluate(() => {
+    for (const [id, v] of [['set-voice-idle', '0.8'], ['set-tail', '2']]) {
+      const el = document.getElementById(id);
+      el.value = v;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  });
+  check('滑桿數值標籤即時更新', (await page.locator('#lbl-voice-idle').textContent()) === '0.8');
+  await page.click('#settings-save');
+  const params = await page.evaluate(() => ({
+    idle: window.__kouyiji.settings.voiceIdleSec,
+    tail: window.__kouyiji.settings.silenceTailSec,
+  }));
+  check('偵測參數已儲存生效', params.idle === 0.8 && params.tail === 2, JSON.stringify(params));
+
   /* ---- 淺色主題 ---- */
   await page.click('#gear');
   await page.selectOption('#set-theme', 'light');

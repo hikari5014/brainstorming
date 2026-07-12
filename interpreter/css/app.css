@@ -220,6 +220,9 @@ dialog a { color: var(--accent); }
 .field input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 0.35rem; }
 .field small { color: var(--dim); display: block; margin-top: 0.25rem; font-size: 0.75rem; }
 .field.checkbox { display: flex; gap: 0.5rem; align-items: center; }
+.subfields { margin: 0.2rem 0 0.6rem 1.4rem; padding-left: 0.8rem; border-left: 2px solid var(--line); }
+.subfields.off { opacity: 0.4; pointer-events: none; }
+.subfields .field strong { color: var(--accent); }
 .welcome { background: var(--bg); border: 1px solid var(--line); border-radius: 0.8rem; padding: 0.9rem; margin-bottom: 0.9rem; font-size: 0.9rem; line-height: 1.7; }
 .welcome button { width: 100%; margin-top: 0.4rem; }
 .usage { color: var(--dim); font-size: 0.8rem; }

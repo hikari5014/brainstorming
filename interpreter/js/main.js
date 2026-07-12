@@ -301,18 +301,21 @@ function releaseHold() {
 function sendSilenceTail(tag) {
   if (useMock()) return; // 假引擎不需要，且會干擾其觸發節奏
   const silent = new Int16Array(1600); // 100ms
-  for (let i = 0; i < 15; i++) sendChunk(tag, silent);
+  const chunks = Math.round((settings.silenceTailSec ?? 1.5) * 10);
+  for (let i = 0; i < chunks; i++) sendChunk(tag, silent);
 }
 
 function beginAwaitVoice(tag) {
   cancelAwaitVoice();
   const aw = { tag, releasedAt: Date.now(), lastTextAt: Date.now(), poll: null };
+  const idleLimit = (settings.voiceIdleSec ?? 1.4) * 1000;
+  const maxWait = (settings.voiceMaxWaitSec ?? 15) * 1000;
   aw.poll = setInterval(() => {
     const idleMs = Date.now() - aw.lastTextAt;
     const totalMs = Date.now() - aw.releasedAt;
-    // 文字停止增長 1.4 秒（且至少過了 0.8 秒）＝翻譯完整；15 秒保險絲防卡死
-    if ((idleMs > 1400 && totalMs > 800) || totalMs > 15000) releaseVoiceNow();
-  }, 250);
+    // 文字停止增長 idleLimit（且至少過 0.8 秒）＝翻譯完整；maxWait 保險絲防卡死
+    if ((idleMs > idleLimit && totalMs > 800) || totalMs > maxWait) releaseVoiceNow();
+  }, 200);
   state.awaitVoice = aw;
 }
 
@@ -528,6 +531,11 @@ function openSettings(firstRun = false) {
   $('#set-key').value = settings.apiKey;
   $('#set-demo').checked = settings.demoMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
+  $('#set-voice-idle').value = settings.voiceIdleSec;
+  $('#set-voice-max').value = settings.voiceMaxWaitSec;
+  $('#set-tail').value = settings.silenceTailSec;
+  syncVoiceParamLabels();
+  $('#voice-params').classList.toggle('off', !settings.voiceAfterRelease);
   $('#set-theme').value = settings.theme;
   $('#set-font').value = settings.fontScale;
   $('#set-idle').value = settings.idleDisconnectMin;
@@ -537,14 +545,29 @@ function openSettings(firstRun = false) {
   $('#settings').showModal();
 }
 
+function syncVoiceParamLabels() {
+  $('#lbl-voice-idle').textContent = Number($('#set-voice-idle').value).toFixed(1);
+  $('#lbl-voice-max').textContent = String(Math.round($('#set-voice-max').value));
+  $('#lbl-tail').textContent = Number($('#set-tail').value).toFixed(1);
+}
+
 function bindSettings() {
   $('#gear').addEventListener('click', () => openSettings(false));
+  for (const id of ['set-voice-idle', 'set-voice-max', 'set-tail']) {
+    $(`#${id}`).addEventListener('input', syncVoiceParamLabels);
+  }
+  $('#set-voice-after').addEventListener('change', (e) => {
+    $('#voice-params').classList.toggle('off', !e.target.checked);
+  });
   $('#settings-close').addEventListener('click', () => $('#settings').close());
   $('#settings-save').addEventListener('click', () => {
     settings = saveSettings({
       apiKey: $('#set-key').value.trim(),
       demoMode: $('#set-demo').checked,
       voiceAfterRelease: $('#set-voice-after').checked,
+      voiceIdleSec: Math.min(3, Math.max(0.5, parseFloat($('#set-voice-idle').value) || 1.4)),
+      voiceMaxWaitSec: Math.min(30, Math.max(3, parseFloat($('#set-voice-max').value) || 15)),
+      silenceTailSec: Math.min(3, Math.max(0.5, parseFloat($('#set-tail').value) || 1.5)),
       theme: $('#set-theme').value,
       fontScale: parseFloat($('#set-font').value) || 1,
       idleDisconnectMin: Math.max(0, parseFloat($('#set-idle').value) || 0),

@@ -160,6 +160,19 @@
       <input type="checkbox" id="set-voice-after" />
       <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
     </label>
+    <div id="voice-params" class="subfields">
+      <label class="field">完整判定：文字停止增長 <strong id="lbl-voice-idle"></strong> 秒後開播
+        <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
+        <small>調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
+      </label>
+      <label class="field">最長等待 <strong id="lbl-voice-max"></strong> 秒（保險絲，超過必定開播）
+        <input type="range" id="set-voice-max" min="3" max="30" step="1" aria-label="最長等待秒數" />
+      </label>
+      <label class="field">放開後補送靜音 <strong id="lbl-tail"></strong> 秒
+        <input type="range" id="set-tail" min="0.5" max="3" step="0.1" aria-label="補送靜音秒數" />
+        <small>幫伺服器把句子收尾；翻譯常出現半截時調長</small>
+      </label>
+    </div>
     <label class="field">介面主題
       <select id="set-theme" aria-label="介面主題">
         <option value="dark">深色</option>
