@@ -77,14 +77,16 @@ try {
   check('對方側語言標籤', (await page.locator('#theirs-lang').textContent()) === 'English');
   check('對方側按鈕使用讀者語言', (await page.locator('#hold-them-label').textContent()).includes('Hold'));
 
-  // 「放開後才播語音」：按住期間語音進入暫存，放開後解除
+  // 「等翻譯完整才播」：按住暫存 → 放開後仍暫存（等待完整）→ 完成後才解除
   const boxMe = await page.locator('#hold-me').boundingBox();
   await page.mouse.move(boxMe.x + boxMe.width / 2, boxMe.y + boxMe.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(300);
   check('按住時譯文語音暫存中', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === true));
   await page.mouse.up();
-  check('放開後語音暫存解除', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === false));
+  check('放開瞬間語音仍暫存（等翻譯完整）', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === true));
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  check('翻譯完整後語音解除暫存開播', true);
 
   // 我方按住說話 → 上半區出現譯文（大字）與原文參考
   await hold('#hold-me', 1500);
@@ -93,7 +95,18 @@ try {
   check('對方側出現譯文', true);
   await page.waitForFunction(() => document.querySelector('#theirs-src').textContent.length > 0, null, { timeout: 5000 });
   check('對方側出現原文參考', true);
-  check('譯文到達後跳動點隱藏', !(await page.locator('#pending-dots').isVisible()));
+  await page.waitForFunction(
+    () => document.querySelector('#pending-dots').classList.contains('hidden'),
+    null, { timeout: 8000 }
+  );
+  check('翻譯完整開播後跳動點隱藏', true);
+
+  // 每輪播畢自動換新連線（背景 recycle）
+  const seqBefore = await page.evaluate(() => window.__kouyiji.state.sessionSeq);
+  await page.waitForFunction(
+    (prev) => window.__kouyiji.state.sessionSeq > prev, seqBefore, { timeout: 10000 }
+  );
+  check('回合結束後自動更換連線', true, `seq ${seqBefore}→+`);
 
   // 對方按住 → 下半區出現中文譯文
   await hold('#hold-them', 1500);

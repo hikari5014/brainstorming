@@ -23,6 +23,8 @@ const state = {
   mode: 'call', // 首頁選擇的模式
   holding: null, // null | 'me' | 'them'
   pressed: { me: false, them: false },
+  awaitVoice: null, // {tag, releasedAt, lastTextAt, poll} 等翻譯完整才播語音
+  sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
   sessions: { toForeign: null, toMine: null },
   pending: { toForeign: [], toMine: [] }, // 連線完成前的音訊暫存
@@ -91,7 +93,9 @@ function routeText(tag, kind, text) {
   const t = state.turns[tag] || (beginTurn(tag), state.turns[tag]);
   t[kind === 'input' ? 'src' : 'dst'] += text;
 
-  if (kind === 'output') hidePendingDots();
+  // 文字還在增長 → 翻譯尚未完整，語音繼續等
+  if (state.awaitVoice?.tag === tag) state.awaitVoice.lastTextAt = Date.now();
+  if (kind === 'output' && !settings.voiceAfterRelease) hidePendingDots();
 
   if (state.phase === 'listen') {
     renderListenTurn(t);
@@ -105,6 +109,7 @@ function routeText(tag, kind, text) {
 
 /* ---------- 連線 ---------- */
 function makeSession(tag) {
+  state.sessionSeq += 1;
   const target = tag === 'toForeign' ? settings.foreignLang : MY_LANG;
   const session = useMock() ? new MockSession({ tag }) : new LiveSession({ apiKey: settings.apiKey.trim(), target, tag });
 
@@ -119,7 +124,11 @@ function makeSession(tag) {
     if (sec) track('recv', sec);
     state.lastActivity = Date.now();
   });
-  session.addEventListener('turn-complete', () => finalizeTurn(tag));
+  session.addEventListener('turn-complete', () => {
+    finalizeTurn(tag);
+    // 伺服器明確表示這輪生成完畢 → 語音可以開播了
+    if (state.awaitVoice?.tag === tag) releaseVoiceNow();
+  });
   session.addEventListener('fatal', (e) => {
     const reason = e.detail.reason || '';
     if (/quota|exceeded|429/i.test(reason)) toast('額度已用盡（免費層每日限額）。', 8000);
@@ -223,6 +232,7 @@ async function startSession(mode) {
 }
 
 async function endSession(silent = false) {
+  cancelAwaitVoice();
   releaseHold();
   setListening(false);
   finalizeAllTurns();
@@ -249,7 +259,8 @@ async function beginHold(side, btn) {
   if (state.phase !== 'call' || state.holding) return;
   audio.kick();
   if (!state.pressed[side]) return; // 按下後已放開
-  audio.stopPlayback(); // 搶話：停掉還沒播完的譯文
+  cancelAwaitVoice(); // 搶話：還在等的上一輪語音直接作廢
+  audio.stopPlayback(); // 停掉還沒播完（含暫存）的譯文
   state.holding = side;
   state.lastActivity = Date.now();
   if (settings.voiceAfterRelease) audio.beginVoiceHold(); // 錄音中譯文語音先暫存
@@ -264,14 +275,77 @@ function releaseHold() {
   state.pressed.me = false;
   state.pressed.them = false;
   if (!state.holding) return;
+  const side = state.holding;
+  const tag = side === 'me' ? 'toForeign' : 'toMine';
   state.holding = null;
-  audio.endVoiceHold(); // 放開 → 播出暫存的譯文語音（字幕早已即時顯示）
   document.body.dataset.holding = '';
   $('#hold-me').classList.remove('holding');
   $('#hold-them').classList.remove('holding');
   clearWaves();
   showPendingDots(); // 放開 → 翻譯中跳動點（固定高度區）
   renderLive();
+
+  // 放開得太快時，伺服器的 VAD 等不到「靜音」就無法把句子收尾（翻譯只出現一半的根因）
+  // → 補送 1.5 秒靜音讓它乾脆結束這一句
+  sendSilenceTail(tag);
+
+  if (settings.voiceAfterRelease) {
+    // 語音等「翻譯完整」才播：turn-complete 或文字停止增長（雙重偵測，15 秒保險絲）
+    beginAwaitVoice(tag);
+  } else {
+    audio.endVoiceHold();
+    watchPlaybackThenRecycle(tag);
+  }
+}
+
+function sendSilenceTail(tag) {
+  if (useMock()) return; // 假引擎不需要，且會干擾其觸發節奏
+  const silent = new Int16Array(1600); // 100ms
+  for (let i = 0; i < 15; i++) sendChunk(tag, silent);
+}
+
+function beginAwaitVoice(tag) {
+  cancelAwaitVoice();
+  const aw = { tag, releasedAt: Date.now(), lastTextAt: Date.now(), poll: null };
+  aw.poll = setInterval(() => {
+    const idleMs = Date.now() - aw.lastTextAt;
+    const totalMs = Date.now() - aw.releasedAt;
+    // 文字停止增長 1.4 秒（且至少過了 0.8 秒）＝翻譯完整；15 秒保險絲防卡死
+    if ((idleMs > 1400 && totalMs > 800) || totalMs > 15000) releaseVoiceNow();
+  }, 250);
+  state.awaitVoice = aw;
+}
+
+function cancelAwaitVoice() {
+  if (state.awaitVoice) {
+    clearInterval(state.awaitVoice.poll);
+    state.awaitVoice = null;
+  }
+}
+
+function releaseVoiceNow() {
+  const tag = state.awaitVoice?.tag;
+  cancelAwaitVoice();
+  hidePendingDots();
+  audio.endVoiceHold(); // 此刻整段語音已完整在本地 → 播放不再依賴網路，不會斷斷續續
+  if (tag) watchPlaybackThenRecycle(tag);
+}
+
+// 語音播完後把該輪用過的連線換成全新的（趁空檔，下一輪按下時已就緒）
+function watchPlaybackThenRecycle(tag) {
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    if (state.phase !== 'call') { clearInterval(iv); return; }
+    if (state.holding) { clearInterval(iv); return; } // 已開始下一輪，別打擾
+    if (!audio.isSpeaking || Date.now() - t0 > 60000) {
+      clearInterval(iv);
+      if (state.phase === 'call' && !state.holding) {
+        state.sessions[tag]?.close();
+        state.sessions[tag] = null;
+        ensureSessions([tag]);
+      }
+    }
+  }, 300);
 }
 
 function bindHold(btn, side) {
