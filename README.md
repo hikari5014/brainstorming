@@ -31,6 +31,8 @@
 | 五種模式、大量介面 → 複雜度失控 | **只做口譯一件事**，兩顆大按鈕 |
 | iOS 聚焦輸入框自動放大、雙擊縮放 → 版面跑掉 | viewport 鎖縮放＋表單一律 ≥16px＋`touch-action: manipulation` |
 | 靜音鍵吐槽：WebAudio 被靜音開關消音 | 麥克風全程開啟 → iOS 進入「錄音+播放」音訊類別，不受靜音鍵影響 |
+| 只看「翻譯文字」停止就開播 → 文字比語音先到完，長句開播時語音只到一半 → 尾段邊下載邊播、斷斷續續（v9 根因） | 開播閘門改為**文字與語音資料都靜止**才放行；回收連線需連續安靜且 1 秒內無語音資料，不會砍斷還在送語音的連線 |
+| 斷音原因只能用猜的 | **語音記錄**（設定 → 🎧）：每條語音的網路到達/實際播放雙軌時間軸＋缺口標紅＋自動診斷結論 |
 
 其他沿用已驗證的部分：raw WebSocket 協定（setup schema 三段降級重試、
 session resumption、goAway 無縫續連）、內建連線診斷（設定 → 🩺）、
@@ -44,7 +46,7 @@ interpreter/
   js/main.js                    回合狀態機（核心）
   js/audio.js                   單一 AudioContext 音訊引擎（收音 worklet + 播放）
   js/live.js                    Gemini Live WS 客戶端 + Demo 假引擎
-  js/langs.js / settings.js / diag.js
+  js/langs.js / settings.js / diag.js / voicelog.js
   sw.js / manifest.webmanifest / icons/
   tests/smoke.mjs               冒煙測試（16 項，含單一 context 不變式）
 ```

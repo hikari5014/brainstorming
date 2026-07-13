@@ -231,6 +231,43 @@ dialog a { color: var(--accent); }
 .diag-row.bad { color: var(--danger); }
 .diag-row.ok { color: var(--ok-text); }
 
+/* ================= 語音記錄（斷音除錯） ================= */
+.vlog-hint { color: var(--dim); font-size: 0.78rem; line-height: 1.6; margin-bottom: 0.8rem; }
+#vlog-list { max-height: 60dvh; overflow-y: auto; }
+.vlog-turn { border: 1px solid var(--line); border-radius: 0.8rem; padding: 0.7rem 0.8rem; margin-bottom: 0.8rem; }
+.vlog-head { font-size: 0.82rem; font-weight: 700; margin-bottom: 0.35rem; }
+.vlog-diag { font-size: 0.78rem; line-height: 1.55; margin: 0.2rem 0; }
+.vlog-diag.bad { color: var(--danger); }
+.vlog-diag.ok { color: var(--ok-text); }
+.vlog-tl { margin: 1rem 0 0.3rem; padding-left: 2.4rem; position: relative; }
+.vlog-tracks { position: relative; }
+/* 兩排軌道的文字標籤（絕對定位在左側留白，避免被軌道 overflow 裁掉） */
+.vlog-tl::before, .vlog-tl::after {
+  position: absolute; left: 0; width: 2.1rem; text-align: right;
+  font-size: 0.62rem; color: var(--dim);
+}
+.vlog-tl::before { content: "到達"; top: 0.15rem; }
+.vlog-tl::after { content: "播放"; top: 1.45rem; }
+.vlog-row { position: relative; height: 1rem; background: var(--bg); border-radius: 0.3rem; margin-bottom: 0.3rem; overflow: hidden; }
+.vlog-blk { position: absolute; top: 15%; height: 70%; border-radius: 0.12rem; }
+.vlog-blk.arrive { background: var(--accent); opacity: 0.75; }
+.vlog-blk.play { background: var(--ok-text); opacity: 0.85; }
+.vlog-blk.play.gap { background: var(--danger); opacity: 1; }
+.vlog-mark { position: absolute; top: 0; height: 2.35rem; width: 0; border-left: 1.5px dashed var(--dim); }
+.vlog-mark::after {
+  content: attr(data-label); position: absolute; top: -0.85rem; left: -0.4rem;
+  font-size: 0.58rem; color: var(--dim); white-space: nowrap;
+}
+.vlog-mark.voice { border-color: var(--accent); }
+.vlog-mark.voice::after { color: var(--accent); }
+.vlog-mark.suspend { border-color: var(--danger); }
+.vlog-mark.suspend::after { color: var(--danger); }
+.vlog-turn details { margin-top: 0.4rem; }
+.vlog-turn summary { font-size: 0.75rem; color: var(--dim); cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.vlog-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; margin-top: 0.2rem; }
+.vlog-table th, .vlog-table td { text-align: left; padding: 0.2rem 0.35rem; border-bottom: 1px solid var(--line); }
+.vlog-table th { color: var(--dim); font-weight: 600; }
+
 /* ================= Toast ================= */
 #toast {
   position: fixed; left: 50%; bottom: calc(6.5rem + env(safe-area-inset-bottom));

@@ -26,7 +26,11 @@ export class AudioEngine {
     this.watchdog = null;
     // 「放開後才播」：錄音期間譯文語音先暫存，放開再一次播出（避免兩個聲音重疊）
     this.voiceHeld = false;
-    this.pendingPcm = [];
+    this.pendingPcm = []; // [{int16, idx}]
+    // 語音記錄儀表：每條語音的到達/播放/缺口都回報出去（voicelog.js 視覺化用）
+    this.onVoiceEvent = null;
+    this.chunkSeq = 0;
+    this._wasSuspended = false;
     this._onVisibility = () => this.kick();
   }
 
@@ -64,7 +68,11 @@ export class AudioEngine {
   }
 
   kick() {
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    const suspended = Boolean(this.ctx && this.ctx.state === 'suspended');
+    // 播放中被系統暫停（切出 app、來電、藍牙切換）也是斷音來源之一 → 記錄下來
+    if (suspended && !this._wasSuspended && this.isSpeaking) this.onVoiceEvent?.({ type: 'suspend' });
+    this._wasSuspended = suspended;
+    if (suspended) this.ctx.resume().catch(() => {});
   }
 
   // 沒按住時把 mic track 靜音（第二道防線：就算 UI 狀態出錯也錄不到東西）
@@ -80,14 +88,16 @@ export class AudioEngine {
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const int16 = new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2));
     if (int16.length === 0 || !this.ctx) return 0;
+    const idx = ++this.chunkSeq;
+    this.onVoiceEvent?.({ type: 'arrive', idx, sec: int16.length / OUTPUT_RATE, held: this.voiceHeld });
     if (this.voiceHeld) {
-      this.pendingPcm.push(int16);
+      this.pendingPcm.push({ int16, idx });
       return int16.length / OUTPUT_RATE;
     }
-    return this.scheduleInt16(int16);
+    return this.scheduleInt16(int16, idx);
   }
 
-  scheduleInt16(int16) {
+  scheduleInt16(int16, idx = 0) {
     const buf = this.ctx.createBuffer(1, int16.length, OUTPUT_RATE);
     const ch = buf.getChannelData(0);
     for (let i = 0; i < int16.length; i++) ch[i] = int16[i] / 0x8000;
@@ -96,7 +106,14 @@ export class AudioEngine {
     src.buffer = buf;
     src.connect(this.ctx.destination);
     const startAt = Math.max(this.ctx.currentTime + LEAD, this.cursor);
+    // 缺口偵測：上一條的尾巴（cursor）已成過去、這條只能重新起頭 → 中間就是聽得到的空白
+    const gapMs = this.cursor > 0 && startAt - this.cursor > 0.005 ? (startAt - this.cursor) * 1000 : 0;
     src.start(startAt);
+    this.onVoiceEvent?.({
+      type: 'play', idx, gapMs,
+      atMs: performance.now() + (startAt - this.ctx.currentTime) * 1000,
+      durMs: buf.duration * 1000,
+    });
     this.cursor = startAt + buf.duration;
     this.speakUntil = performance.now() + Math.max(0, this.cursor - this.ctx.currentTime) * 1000;
     this.sources.add(src);
@@ -114,7 +131,7 @@ export class AudioEngine {
     this.voiceHeld = false;
     const held = this.pendingPcm;
     this.pendingPcm = [];
-    for (const int16 of held) this.scheduleInt16(int16);
+    for (const { int16, idx } of held) this.scheduleInt16(int16, idx);
   }
 
   // 對方按下按鈕搶話 → 立刻停掉還沒播完（含暫存）的譯文
@@ -126,6 +143,7 @@ export class AudioEngine {
     this.pendingPcm = [];
     this.cursor = 0;
     this.speakUntil = 0;
+    this.chunkSeq = 0; // 每輪從第 1 條重新編號（語音記錄可讀性）
   }
 
   get isSpeaking() {

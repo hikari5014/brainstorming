@@ -225,6 +225,67 @@ try {
   await page.waitForTimeout(800);
   if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
 
+  /* ---- v9：音訊閘門（語音資料還在到達就不開播）＋缺口偵測 ---- */
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  await page.evaluate(() => window.__kouyiji.hooks.beginAwaitVoice('toForeign'));
+  const stillWaiting = await page.evaluate(async () => {
+    const k = window.__kouyiji;
+    const t0 = Date.now();
+    // 模擬語音資料持續從網路到達 2.4 秒（文字早已停止）→ 不可開播
+    while (Date.now() - t0 < 2400) {
+      if (k.state.awaitVoice) k.state.awaitVoice.lastAudioAt = Date.now();
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return Boolean(k.state.awaitVoice);
+  });
+  check('語音仍在到達時不開播（音訊閘門）', stillWaiting === true);
+  await page.waitForFunction(() => !window.__kouyiji.state.awaitVoice, null, { timeout: 6000 });
+  check('語音停止到達後才開播', true);
+
+  const gapEv = await page.evaluate(() => new Promise((resolve) => {
+    const a = window.__kouyiji.audio;
+    a.stopPlayback();
+    a.scheduleInt16(new Int16Array(2400), 101); // 0.1 秒
+    setTimeout(() => {
+      const prev = a.onVoiceEvent;
+      a.onVoiceEvent = (ev) => { a.onVoiceEvent = prev; resolve(ev); };
+      a.scheduleInt16(new Int16Array(2400), 102); // 上一條已播完 → 中間是缺口
+    }, 500);
+  }));
+  check('播放缺口自動偵測', gapEv.type === 'play' && gapEv.gapMs > 200, JSON.stringify(gapEv));
+  await page.click('#end-call');
+  await page.waitForTimeout(600);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
+  /* ---- v9：語音記錄視覺化 ---- */
+  const vturn = await page.evaluate(() => {
+    const t = window.__kouyiji.vlog.turns.find((x) => x.chunks.some((c) => c.playMs != null));
+    if (!t) return null;
+    return {
+      chunks: t.chunks.length,
+      played: t.chunks.filter((c) => c.playMs != null).length,
+      reason: t.marks.find((m) => m.type === 'voice-start')?.reason || null,
+      released: t.marks.some((m) => m.type === 'release'),
+    };
+  });
+  check('語音記錄逐條入帳（到達＋播放＋開播原因）',
+    Boolean(vturn && vturn.chunks > 0 && vturn.played > 0 && vturn.reason && vturn.released),
+    JSON.stringify(vturn));
+  await page.click('#gear');
+  await page.click('#open-voicelog');
+  await page.waitForSelector('#voicelog[open]');
+  const vui = await page.evaluate(() => ({
+    turns: document.querySelectorAll('.vlog-turn').length,
+    blocks: document.querySelectorAll('.vlog-blk').length,
+    diags: document.querySelectorAll('.vlog-diag').length,
+    rows: document.querySelectorAll('.vlog-table tbody tr').length,
+  }));
+  check('語音記錄視覺化（時間軸＋診斷＋明細）',
+    vui.turns > 0 && vui.blocks > 0 && vui.diags > 0 && vui.rows > 0, JSON.stringify(vui));
+  await page.click('#vlog-close');
+  await page.click('#settings-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();

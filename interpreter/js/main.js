@@ -11,6 +11,7 @@ import { LiveSession, MockSession } from './live.js';
 import { AudioEngine } from './audio.js';
 import { runDiagnostics, formatDiagnostics } from './diag.js';
 import { TranscriptStore, formatTxt, downloadTxt } from './transcript.js';
+import { vlog, vlogBegin, vlogMark, vlogAudio, renderVoiceLog } from './voicelog.js';
 
 const $ = (s) => document.querySelector(s);
 
@@ -23,7 +24,8 @@ const state = {
   mode: 'call', // 首頁選擇的模式
   holding: null, // null | 'me' | 'them'
   pressed: { me: false, them: false },
-  awaitVoice: null, // {tag, releasedAt, lastTextAt, poll} 等翻譯完整才播語音
+  awaitVoice: null, // {tag, releasedAt, lastTextAt, lastAudioAt, poll} 等翻譯完整才播語音
+  lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
   sessions: { toForeign: null, toMine: null },
@@ -123,11 +125,15 @@ function makeSession(tag) {
     const sec = audio.playBase64(e.detail.base64);
     if (sec) track('recv', sec);
     state.lastActivity = Date.now();
+    state.lastAudioAt[tag] = Date.now();
+    // 語音資料還在進來 → 就算文字已停，翻譯也還沒完整，繼續等
+    if (state.awaitVoice?.tag === tag) state.awaitVoice.lastAudioAt = Date.now();
   });
   session.addEventListener('turn-complete', () => {
     finalizeTurn(tag);
+    vlogMark('turn-complete');
     // 伺服器明確表示這輪生成完畢 → 語音可以開播了
-    if (state.awaitVoice?.tag === tag) releaseVoiceNow();
+    if (state.awaitVoice?.tag === tag) releaseVoiceNow('turn-complete');
   });
   session.addEventListener('fatal', (e) => {
     const reason = e.detail.reason || '';
@@ -188,6 +194,8 @@ audio.onChunk = ({ int16, rms }) => {
     sendChunk('toMine', int16);
   }
 };
+
+audio.onVoiceEvent = vlogAudio; // 每條語音的到達/播放/缺口 → 語音記錄
 
 audio.onMicLost = () => {
   toast('麥克風中斷了。');
@@ -259,7 +267,8 @@ async function beginHold(side, btn) {
   if (state.phase !== 'call' || state.holding) return;
   audio.kick();
   if (!state.pressed[side]) return; // 按下後已放開
-  cancelAwaitVoice(); // 搶話：還在等的上一輪語音直接作廢
+  if (state.awaitVoice) vlogMark('interrupted'); // 搶話：上一輪還沒播的語音作廢
+  cancelAwaitVoice();
   audio.stopPlayback(); // 停掉還沒播完（含暫存）的譯文
   state.holding = side;
   state.lastActivity = Date.now();
@@ -268,6 +277,7 @@ async function beginHold(side, btn) {
   document.body.dataset.holding = side;
   hidePendingDots();
   beginTurn(side === 'me' ? 'toForeign' : 'toMine');
+  vlogBegin({ tag: side === 'me' ? 'toForeign' : 'toMine', dir: side === 'me' ? `我 → ${foreign().native}` : `${foreign().native} → 我` });
   updateTalkLabels();
   renderLive();
 }
@@ -290,11 +300,13 @@ function releaseHold() {
   // 放開得太快時，伺服器的 VAD 等不到「靜音」就無法把句子收尾（翻譯只出現一半的根因）
   // → 補送 1.5 秒靜音讓它乾脆結束這一句
   sendSilenceTail(tag);
+  vlogMark('release');
 
   if (settings.voiceAfterRelease) {
-    // 語音等「翻譯完整」才播：turn-complete 或文字停止增長（雙重偵測，15 秒保險絲）
+    // 語音等「翻譯完整」才播：turn-complete 或文字＋語音都停止增長（15 秒保險絲）
     beginAwaitVoice(tag);
   } else {
+    vlogMark('voice-start', { reason: 'instant' });
     audio.endVoiceHold();
     watchPlaybackThenRecycle(tag);
   }
@@ -309,14 +321,18 @@ function sendSilenceTail(tag) {
 
 function beginAwaitVoice(tag) {
   cancelAwaitVoice();
-  const aw = { tag, releasedAt: Date.now(), lastTextAt: Date.now(), poll: null };
+  const aw = { tag, releasedAt: Date.now(), lastTextAt: Date.now(), lastAudioAt: Date.now(), poll: null };
   const idleLimit = (settings.voiceIdleSec ?? 1.4) * 1000;
   const maxWait = (settings.voiceMaxWaitSec ?? 15) * 1000;
   aw.poll = setInterval(() => {
-    const idleMs = Date.now() - aw.lastTextAt;
+    const textIdle = Date.now() - aw.lastTextAt;
+    const audioIdle = Date.now() - aw.lastAudioAt;
     const totalMs = Date.now() - aw.releasedAt;
-    // 文字停止增長 idleLimit（且至少過 0.8 秒）＝翻譯完整；maxWait 保險絲防卡死
-    if ((idleMs > idleLimit && totalMs > 800) || totalMs > maxWait) releaseVoiceNow();
+    // 「文字」與「語音」都停止增長才算完整。v8 以前只看文字，但文字通常比語音先到完，
+    // 長句時常在語音只到一半時就開播 → 後半段變成邊下載邊播 → 尾段斷斷續續（真正根因）。
+    if ((textIdle > idleLimit && audioIdle > idleLimit && totalMs > 800) || totalMs > maxWait) {
+      releaseVoiceNow(totalMs > maxWait ? 'maxwait' : 'idle');
+    }
   }, 200);
   state.awaitVoice = aw;
 }
@@ -328,10 +344,11 @@ function cancelAwaitVoice() {
   }
 }
 
-function releaseVoiceNow() {
+function releaseVoiceNow(reason = 'idle') {
   const tag = state.awaitVoice?.tag;
   cancelAwaitVoice();
   hidePendingDots();
+  vlogMark('voice-start', { reason });
   audio.endVoiceHold(); // 此刻整段語音已完整在本地 → 播放不再依賴網路，不會斷斷續續
   if (tag) watchPlaybackThenRecycle(tag);
 }
@@ -339,12 +356,18 @@ function releaseVoiceNow() {
 // 語音播完後把該輪用過的連線換成全新的（趁空檔，下一輪按下時已就緒）
 function watchPlaybackThenRecycle(tag) {
   const t0 = Date.now();
+  let quiet = 0;
   const iv = setInterval(() => {
     if (state.phase !== 'call') { clearInterval(iv); return; }
     if (state.holding) { clearInterval(iv); return; } // 已開始下一輪，別打擾
-    if (!audio.isSpeaking || Date.now() - t0 > 60000) {
+    // 播放中偶爾有短暫縫隙，一瞬間的 isSpeaking=false 不代表播完；
+    // 要「連續 3 次安靜」且「1 秒內沒再收到語音資料」才回收，否則會把還在送語音的連線砍斷（截斷後半句）
+    const audioQuiet = Date.now() - (state.lastAudioAt[tag] || 0) > 1000;
+    quiet = !audio.isSpeaking && audioQuiet ? quiet + 1 : 0;
+    if (quiet >= 3 || Date.now() - t0 > 60000) {
       clearInterval(iv);
       if (state.phase === 'call' && !state.holding) {
+        vlogMark('recycle');
         state.sessions[tag]?.close();
         state.sessions[tag] = null;
         ensureSessions([tag]);
@@ -613,6 +636,11 @@ function bindSettings() {
     $('#settings').close();
     toast('Demo 模式已開啟，按「開始對話」試玩。');
   });
+  $('#open-voicelog').addEventListener('click', () => {
+    renderVoiceLog($('#vlog-list'));
+    $('#voicelog').showModal();
+  });
+  $('#vlog-close').addEventListener('click', () => $('#voicelog').close());
   $('#run-diag').addEventListener('click', async () => {
     const box = $('#diag-results');
     box.classList.remove('hidden');
@@ -679,7 +707,7 @@ function boot() {
   bindTranscript();
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
   if (!settings.apiKey && !settings.demoMode) openSettings(true);
-  window.__kouyiji = { audio, state, store, get settings() { return settings; } };
+  window.__kouyiji = { audio, state, store, vlog, hooks: { beginAwaitVoice }, get settings() { return settings; } };
 }
 
 boot();

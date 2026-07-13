@@ -168,9 +168,9 @@
       <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
     </label>
     <div id="voice-params" class="subfields">
-      <label class="field">完整判定：文字停止增長 <strong id="lbl-voice-idle"></strong> 秒後開播
+      <label class="field">完整判定：文字與語音都停止 <strong id="lbl-voice-idle"></strong> 秒後開播
         <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
-        <small>調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
+        <small>字幕與語音資料都不再增加才開播（缺一不可）。調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
       </label>
       <label class="field">最長等待 <strong id="lbl-voice-max"></strong> 秒（保險絲，超過必定開播）
         <input type="range" id="set-voice-max" min="3" max="30" step="1" aria-label="最長等待秒數" />
@@ -197,9 +197,21 @@
     <button id="run-diag">🩺 執行連線診斷</button>
     <div id="diag-results" class="hidden"></div>
     <button id="copy-diag" class="hidden">複製診斷結果</button>
+    <button id="open-voicelog">🎧 語音記錄（逐條分析斷音）</button>
     <div class="dialog-actions">
       <button id="settings-close">取消</button>
       <button id="settings-save" class="primary">儲存</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 語音記錄（斷音除錯） ============ -->
+  <dialog id="voicelog">
+    <h2>語音記錄</h2>
+    <p class="vlog-hint">最近 12 輪翻譯語音，每一條的「網路到達」與「實際播放」時間軸。
+      紅色＝播放缺口；「開播後才到」＝該條沒趕上暫存，是尾段斷音的來源。</p>
+    <div id="vlog-list"></div>
+    <div class="dialog-actions">
+      <button id="vlog-close" class="primary">關閉</button>
     </div>
   </dialog>
 
