@@ -26,6 +26,7 @@ const state = {
   pressed: { me: false, them: false },
   awaitVoice: null, // {tag, releasedAt, lastTextAt, lastAudioAt, poll} 等翻譯完整才播語音
   manualWait: null, // 手動開播模式：放開後等使用者按「▶ 播放」的 tag
+  replay: { chunks: [], secs: 0 }, // 上一句外語翻譯語音的本機留存（對方沒聽清楚可重播）
   lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
@@ -134,6 +135,8 @@ function makeSession(tag) {
     if (tag === 'toMine' && themTextOnly()) return;
     const sec = audio.playBase64(e.detail.base64);
     if (sec) track('recv', sec);
+    if (sec && tag === 'toForeign') rememberReplay(e.detail.base64, sec); // 留存供重播
+
     state.lastActivity = Date.now();
     state.lastAudioAt[tag] = Date.now();
     // 語音資料還在進來 → 就算文字已停，翻譯也還沒完整，繼續等
@@ -262,6 +265,8 @@ async function startSession(mode) {
 async function endSession(silent = false) {
   cancelAwaitVoice();
   cancelManualWait();
+  state.replay = { chunks: [], secs: 0 };
+  updateReplayBtn();
   releaseHold();
   setListening(false);
   finalizeAllTurns();
@@ -299,6 +304,8 @@ async function beginHold(side, btn) {
   btn.classList.add('holding');
   document.body.dataset.holding = side;
   hidePendingDots();
+  if (side === 'me') { state.replay = { chunks: [], secs: 0 }; } // 新的一句開始 → 舊語音作廢
+  updateReplayBtn();
   beginTurn(side === 'me' ? 'toForeign' : 'toMine');
   vlogBegin({
     tag: side === 'me' ? 'toForeign' : 'toMine',
@@ -464,6 +471,35 @@ for (const evt of ['pointerup', 'pointercancel']) {
 }
 window.addEventListener('blur', () => { if (settings.talkMode !== 'toggle') releaseHold(); });
 
+/* ---------- 外語語音重播（對方沒聽清楚 → 自己按一下再聽一次） ---------- */
+// 上一句「我 → 外語」的翻譯語音留存本機（上限 120 秒），重播完全不動用網路與額度。
+function rememberReplay(b64, sec) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  state.replay.chunks.push(new Int16Array(bytes.buffer, 0, Math.floor(bytes.length / 2)));
+  state.replay.secs += sec;
+  while (state.replay.secs > 120 && state.replay.chunks.length) {
+    const c = state.replay.chunks.shift();
+    state.replay.secs -= c.length / 24000;
+  }
+  updateReplayBtn();
+}
+
+function updateReplayBtn() {
+  const show = state.phase === 'call' && state.replay.secs > 0 &&
+    !state.holding && !state.awaitVoice && !state.manualWait;
+  $('#replay-them').classList.toggle('hidden', !show);
+}
+
+function replayLast() {
+  if (state.phase !== 'call' || state.holding || !state.replay.secs) return;
+  audio.kick();
+  audio.stopPlayback(); // 從頭重播（若還在播就先停掉）
+  for (const c of state.replay.chunks) audio.scheduleInt16(c);
+  state.lastActivity = Date.now();
+}
+
 /* ---------- 語音接收指示器（即時看到「下載是否完全」，可開關） ---------- */
 // 每 250ms 依語音記錄（vlog.cur）更新：收到幾條/幾秒、仍在接收還是已靜止幾秒。
 // 讓使用者親眼確認斷音是「語音還沒下載完」（伺服器端）還是別的原因，
@@ -473,6 +509,7 @@ setInterval(() => {
   if (!el) return;
   const active = state.phase === 'call' && settings.voiceIndicator &&
     (state.holding || state.awaitVoice || state.manualWait);
+  updateReplayBtn(); // 順便維護重播鍵顯示（同一節奏，狀態轉換都涵蓋）
   if (!active || !vlog.cur || vlog.cur.textOnly) { el.classList.add('hidden'); return; } // 純文字回合沒有語音可指示
   el.classList.remove('hidden');
   const t = vlog.cur;
@@ -609,6 +646,8 @@ function renderLangUI() {
   $('#theirs-lang').textContent = lang.native;
   $('#theirs-live').textContent = lang.ui.live;
   $('#theirs-src-label').textContent = lang.ui.original;
+  $('#replay-them-label').textContent = lang.ui.replay;
+  $('#replay-them').setAttribute('aria-label', lang.ui.replay);
   updateTalkLabels();
   $('#pair-foreign').textContent = lang.native;
   $('#listen-lang').textContent = `${lang.native} → 中文`;
@@ -785,6 +824,7 @@ function bindHome() {
     toast('要換語言請先結束通話，回首頁選擇。', 3500);
   });
   $('#manual-play').addEventListener('click', manualPlayNow);
+  $('#replay-them').addEventListener('click', replayLast);
 }
 
 /* ---------- 啟動 ---------- */

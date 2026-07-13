@@ -154,6 +154,17 @@ body[data-holding] .wave i, body[data-listening="on"] #wave-listen i { opacity: 
   touch-action: none;
 }
 .hold-btn.holding { background: var(--accent); color: #fff; } /* 按下＝整顆填滿強調色 */
+
+/* 重播鍵：在對方側字幕旁（隨區塊旋轉朝向對方），沒聽清楚可自己按 */
+.replay-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  align-self: flex-start;
+  min-height: 44px; padding: 0 0.9rem; margin-bottom: 0.3rem;
+  border: 1.5px solid var(--accent); border-radius: 1.4rem;
+  background: transparent; color: var(--accent);
+  font-size: 0.85rem; font-weight: 700;
+}
+.replay-btn:active { background: var(--accent-soft); }
 body[data-holding="me"] #hold-them, body[data-holding="them"] #hold-me { opacity: 0.3; }
 
 /* 中控列（不旋轉） */

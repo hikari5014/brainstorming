@@ -26,6 +26,7 @@
     <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6 4c-1 0-2 1-2 2 0 8 6 14 14 14 1 0 2-1 2-2v-2.5l-4-1.5-1.5 2C12 15 9.5 12.5 8.5 10l2-1.5L9 4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3 M12 18.2v3 M2.8 12h3 M18.2 12h3 M5.5 5.5l2.1 2.1 M16.4 16.4l2.1 2.1 M18.5 5.5l-2.1 2.1 M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3 M20 16H7l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.33 4.02" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5.2 3.2v5.4h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4 M8 8l4-4 4 4 M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11 M8 11l4 4 4-4 M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -72,6 +73,10 @@
         <span class="live"><span class="live-dot"></span><span id="theirs-live">Interpreting</span></span>
       </header>
       <div class="side-content">
+        <!-- 重播鍵：朝向對方，沒聽清楚可自己按（重播上一句外語語音） -->
+        <button id="replay-them" class="replay-btn hidden" aria-label="Replay">
+          <svg width="20" height="20"><use href="#i-replay"/></svg><span id="replay-them-label">Replay</span>
+        </button>
         <div class="dst" id="theirs-dst" aria-live="polite"></div>
         <div class="src" id="theirs-src-row"><span class="src-label" id="theirs-src-label">Original</span><span id="theirs-src"></span></div>
       </div>

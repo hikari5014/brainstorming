@@ -375,6 +375,28 @@ try {
   await page.check('#set-them-text'); // 恢復預設
   await page.click('#settings-save');
 
+  /* ---- v12：外語語音重播鍵 ---- */
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  check('尚無語音時重播鍵隱藏', await page.evaluate(() => document.querySelector('#replay-them').classList.contains('hidden')));
+  await hold('#hold-me', 1500);
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  await page.waitForSelector('#replay-them:not(.hidden)', { timeout: 5000 });
+  check('語音播出後出現重播鍵', true);
+  check('重播鍵標籤為讀者語言', (await page.locator('#replay-them-label').textContent()) === 'Replay');
+  await page.waitForFunction(() => !window.__kouyiji.audio.isSpeaking, null, { timeout: 6000 });
+  await page.click('#replay-them');
+  check('點擊重播立即播放（本機緩衝，不耗額度）', await page.evaluate(() => window.__kouyiji.audio.isSpeaking));
+  await page.waitForFunction(() => !window.__kouyiji.audio.isSpeaking, null, { timeout: 6000 });
+  await hold('#hold-them', 1200);
+  await page.waitForTimeout(2500);
+  check('對方回合後重播鍵仍可用', await page.evaluate(() => !document.querySelector('#replay-them').classList.contains('hidden')));
+  await hold('#hold-me', 300);
+  check('我方新一句開始即清除舊語音', await page.evaluate(() => window.__kouyiji.state.replay.secs === 0));
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();
