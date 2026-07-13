@@ -25,6 +25,7 @@ const state = {
   holding: null, // null | 'me' | 'them'
   pressed: { me: false, them: false },
   awaitVoice: null, // {tag, releasedAt, lastTextAt, lastAudioAt, poll} 等翻譯完整才播語音
+  manualWait: null, // 手動開播模式：放開後等使用者按「▶ 播放」的 tag
   lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
@@ -224,6 +225,7 @@ async function startSession(mode) {
   // 讓後續播放斷斷續續。整通電話保持開啟，收不收音由回合狀態機（軟體層）決定。
   audio.setMicEnabled(true);
   state.phase = mode;
+  document.body.dataset.manual = settings.voiceAfterRelease && settings.manualPlay ? 'on' : '';
   state.callHadTurns = false;
   state.lastActivity = Date.now();
   document.body.dataset.phase = mode;
@@ -241,6 +243,7 @@ async function startSession(mode) {
 
 async function endSession(silent = false) {
   cancelAwaitVoice();
+  cancelManualWait();
   releaseHold();
   setListening(false);
   finalizeAllTurns();
@@ -267,8 +270,9 @@ async function beginHold(side, btn) {
   if (state.phase !== 'call' || state.holding) return;
   audio.kick();
   if (!state.pressed[side]) return; // 按下後已放開
-  if (state.awaitVoice) vlogMark('interrupted'); // 搶話：上一輪還沒播的語音作廢
+  if (state.awaitVoice || state.manualWait) vlogMark('interrupted'); // 搶話：上一輪還沒播的語音作廢
   cancelAwaitVoice();
+  cancelManualWait();
   audio.stopPlayback(); // 停掉還沒播完（含暫存）的譯文
   state.holding = side;
   state.lastActivity = Date.now();
@@ -302,7 +306,11 @@ function releaseHold() {
   sendSilenceTail(tag);
   vlogMark('release');
 
-  if (settings.voiceAfterRelease) {
+  if (settings.voiceAfterRelease && settings.manualPlay) {
+    // 手動開播：不做任何自動判斷，等使用者看著接收指示器自己按「▶ 播放」
+    state.manualWait = tag;
+    $('#manual-play').classList.remove('hidden');
+  } else if (settings.voiceAfterRelease) {
     // 語音等「翻譯完整」才播：turn-complete 或文字＋語音都停止增長（15 秒保險絲）
     beginAwaitVoice(tag);
   } else {
@@ -310,6 +318,21 @@ function releaseHold() {
     audio.endVoiceHold();
     watchPlaybackThenRecycle(tag);
   }
+}
+
+function cancelManualWait() {
+  state.manualWait = null;
+  $('#manual-play').classList.add('hidden');
+}
+
+function manualPlayNow() {
+  if (!state.manualWait || state.phase !== 'call') return;
+  const tag = state.manualWait;
+  cancelManualWait();
+  hidePendingDots();
+  vlogMark('voice-start', { reason: 'manual' });
+  audio.endVoiceHold(); // 使用者判定完整 → 從本機暫存播出
+  watchPlaybackThenRecycle(tag);
 }
 
 function sendSilenceTail(tag) {
@@ -409,6 +432,35 @@ for (const evt of ['pointerup', 'pointercancel']) {
   window.addEventListener(evt, () => { if (settings.talkMode !== 'toggle') releaseHold(); }, true);
 }
 window.addEventListener('blur', () => { if (settings.talkMode !== 'toggle') releaseHold(); });
+
+/* ---------- 語音接收指示器（即時看到「下載是否完全」，可開關） ---------- */
+// 每 250ms 依語音記錄（vlog.cur）更新：收到幾條/幾秒、仍在接收還是已靜止幾秒。
+// 讓使用者親眼確認斷音是「語音還沒下載完」（伺服器端）還是別的原因，
+// 並在手動開播模式下自行判斷按「▶ 播放」的時機。
+setInterval(() => {
+  const el = $('#voice-ind');
+  if (!el) return;
+  const active = state.phase === 'call' && settings.voiceIndicator &&
+    (state.holding || state.awaitVoice || state.manualWait);
+  if (!active || !vlog.cur) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const t = vlog.cur;
+  const n = t.chunks.length;
+  if (n === 0) {
+    el.textContent = '等待語音…';
+    el.dataset.state = 'wait';
+    return;
+  }
+  const secs = t.chunks.reduce((s, c) => s + c.durMs, 0) / 1000;
+  const idle = (performance.now() - t.t0 - Math.max(...t.chunks.map((c) => c.arriveMs))) / 1000;
+  if (idle < 1.2) {
+    el.textContent = `⬇ 語音接收中 ${n} 條・${secs.toFixed(1)}s`;
+    el.dataset.state = 'recv';
+  } else {
+    el.textContent = `✓ 已靜止 ${idle.toFixed(1)}s（${n} 條・${secs.toFixed(1)}s）`;
+    el.dataset.state = 'quiet';
+  }
+}, 250);
 
 /* ---------- 翻譯中跳動點（固定高度，不跳版面） ---------- */
 function showPendingDots() {
@@ -582,6 +634,8 @@ function openSettings(firstRun = false) {
   $('#set-demo').checked = settings.demoMode;
   $('#set-talk-mode').value = settings.talkMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
+  $('#set-manual-play').checked = settings.manualPlay;
+  $('#set-voice-ind').checked = settings.voiceIndicator;
   $('#set-voice-idle').value = settings.voiceIdleSec;
   $('#set-voice-max').value = settings.voiceMaxWaitSec;
   $('#set-tail').value = settings.silenceTailSec;
@@ -617,6 +671,8 @@ function bindSettings() {
       demoMode: $('#set-demo').checked,
       talkMode: $('#set-talk-mode').value,
       voiceAfterRelease: $('#set-voice-after').checked,
+      manualPlay: $('#set-manual-play').checked,
+      voiceIndicator: $('#set-voice-ind').checked,
       voiceIdleSec: Math.min(3, Math.max(0.5, parseFloat($('#set-voice-idle').value) || 1.4)),
       voiceMaxWaitSec: Math.min(30, Math.max(3, parseFloat($('#set-voice-max').value) || 15)),
       silenceTailSec: Math.min(3, Math.max(0.5, parseFloat($('#set-tail').value) || 1.5)),
@@ -691,6 +747,7 @@ function bindHome() {
   $('#pair').addEventListener('click', () => {
     toast('要換語言請先結束通話，回首頁選擇。', 3500);
   });
+  $('#manual-play').addEventListener('click', manualPlayNow);
 }
 
 /* ---------- 啟動 ---------- */

@@ -52,6 +52,7 @@ const REASONS = {
   idle: '文字與語音靜止',
   maxwait: '超時保險絲',
   instant: '即播模式（未暫存）',
+  manual: '手動按下播放',
 };
 
 function fmtS(ms) { return (ms / 1000).toFixed(1); }

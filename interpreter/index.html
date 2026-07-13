@@ -90,9 +90,11 @@
       </button>
       <button id="end-call" class="icon-btn end" aria-label="結束通話"><svg width="22" height="22"><use href="#i-end"/></svg></button>
     </div>
-    <!-- 翻譯中跳動點：固定高度，避免版面跳動 -->
+    <!-- 翻譯中跳動點＋語音接收指示器：固定高度，避免版面跳動 -->
     <div id="pending-strip" aria-live="polite">
       <span id="pending-dots" class="hidden"><i></i><i></i><i></i><em>翻譯中</em></span>
+      <span id="voice-ind" class="hidden" data-state="wait" aria-hidden="true"></span>
+      <button id="manual-play" class="hidden" aria-label="播放翻譯語音">▶ 播放</button>
     </div>
 
     <!-- 下半：面向自己 -->
@@ -168,6 +170,10 @@
       <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
     </label>
     <div id="voice-params" class="subfields">
+      <label class="field checkbox">
+        <input type="checkbox" id="set-manual-play" />
+        <span>手動開播：放開後由我按「▶ 播放」<small style="display:block">完全不做自動判斷。放開錄音鈕後語音持續暫存，畫面出現播放鈕，搭配接收指示器自行決定開播時機</small></span>
+      </label>
       <label class="field">完整判定：文字與語音都停止 <strong id="lbl-voice-idle"></strong> 秒後開播
         <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
         <small>字幕與語音資料都不再增加才開播（缺一不可）。調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
@@ -180,6 +186,10 @@
         <small>幫伺服器把句子收尾；翻譯常出現半截時調長</small>
       </label>
     </div>
+    <label class="field checkbox">
+      <input type="checkbox" id="set-voice-ind" />
+      <span>對話中顯示語音接收指示器<small style="display:block">即時顯示已收到幾條/幾秒翻譯語音、仍在下載還是已靜止——用來確認斷音是不是伺服器端造成，以及判斷開播時機</small></span>
+    </label>
     <label class="field">介面主題
       <select id="set-theme" aria-label="介面主題">
         <option value="dark">深色</option>

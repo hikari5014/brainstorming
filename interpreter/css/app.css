@@ -167,12 +167,22 @@ body[data-holding="me"] #hold-them, body[data-holding="them"] #hold-me { opacity
 #pair { border: none; background: transparent; color: var(--dim); font-weight: 700; font-size: 0.9rem; gap: 0.5rem; }
 #pair svg { color: var(--accent); }
 
-/* 翻譯中跳動點：固定高度（有無內容都佔 1.5rem，避免版面跳動） */
+/* 翻譯中跳動點＋語音接收指示器：固定高度（避免版面跳動） */
 #pending-strip {
   height: 1.5rem; flex: none;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; gap: 0.7rem;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
+}
+/* 手動開播模式：整通電話固定較高，容納 44px 播放鈕（高度不變＝不跳版面） */
+body[data-manual="on"] #pending-strip { height: 3.2rem; }
+#voice-ind { font-size: 0.72rem; font-variant-numeric: tabular-nums; }
+#voice-ind[data-state="wait"] { color: var(--dim); }
+#voice-ind[data-state="recv"] { color: var(--accent); }
+#voice-ind[data-state="quiet"] { color: var(--ok-text); }
+#manual-play {
+  min-height: 44px; padding: 0 1.1rem; border-radius: 1.4rem;
+  background: var(--accent); border: none; color: #fff; font-weight: 800; font-size: 0.95rem;
 }
 #pending-dots { display: flex; align-items: center; gap: 0.3rem; }
 #pending-dots i { width: 0.32rem; height: 0.32rem; border-radius: 50%; background: var(--accent); animation: bounce 1s infinite; }

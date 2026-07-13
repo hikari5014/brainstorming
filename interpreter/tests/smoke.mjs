@@ -286,6 +286,54 @@ try {
   await page.click('#vlog-close');
   await page.click('#settings-close');
 
+  /* ---- v10：語音接收指示器＋手動開播 ---- */
+  await page.click('#gear');
+  check('指示器/手動開播設定存在',
+    (await page.locator('#set-voice-ind').isVisible()) && (await page.locator('#set-manual-play').isVisible()));
+  await page.selectOption('#set-talk-mode', 'hold');
+  await page.check('#set-manual-play');
+  await page.click('#settings-save');
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  check('手動模式：中央區固定加高（不跳版面）', await page.evaluate(() => document.body.dataset.manual === 'on'));
+  await hold('#hold-me', 1500);
+  await page.waitForSelector('#manual-play:not(.hidden)', { timeout: 3000 });
+  check('放開後出現「▶ 播放」鈕', true);
+  await page.waitForFunction(() => {
+    const el = document.querySelector('#voice-ind');
+    return el && !el.classList.contains('hidden');
+  }, null, { timeout: 3000 });
+  check('語音接收指示器即時顯示', true);
+  await page.waitForTimeout(3500); // mock 的 turn-complete 早已送達
+  check('手動模式完全不自動開播', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === true));
+  const indText = await page.locator('#voice-ind').textContent();
+  check('指示器顯示接收統計（條數/秒數）', /條/.test(indText), indText);
+  await page.click('#manual-play');
+  check('按下播放才開播', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === false));
+  check('手動開播原因入帳', await page.evaluate(() =>
+    window.__kouyiji.vlog.turns.some((t) => t.marks.some((m) => m.type === 'voice-start' && m.reason === 'manual'))));
+  check('播放鈕已收起', await page.evaluate(() => document.querySelector('#manual-play').classList.contains('hidden')));
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
+  // 兩個開關都關掉 → 指示器隱藏、恢復自動開播
+  await page.click('#gear');
+  await page.uncheck('#set-manual-play');
+  await page.uncheck('#set-voice-ind');
+  await page.click('#settings-save');
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  await hold('#hold-me', 1200);
+  await page.waitForTimeout(600);
+  check('指示器可關閉', await page.evaluate(() => document.querySelector('#voice-ind').classList.contains('hidden')));
+  check('關閉手動後無播放鈕', await page.evaluate(() => document.querySelector('#manual-play').classList.contains('hidden')));
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  check('關閉手動後恢復自動開播', true);
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();
