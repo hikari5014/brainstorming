@@ -59,6 +59,9 @@ function fmtS(ms) { return (ms / 1000).toFixed(1); }
 
 // 自動診斷：把數據翻成一句人話
 function diagnose(t) {
+  if (t.textOnly) {
+    return [{ ok: true, text: '✓ 純文字模式（此方向不使用語音，僅字幕）。' }];
+  }
   const voiceStart = t.marks.find((m) => m.type === 'voice-start');
   const played = t.chunks.filter((c) => c.playMs != null);
   const late = voiceStart ? t.chunks.filter((c) => c.arriveMs > voiceStart.ms + 50) : [];

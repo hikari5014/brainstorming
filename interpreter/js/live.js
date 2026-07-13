@@ -20,11 +20,12 @@ function int16ToBase64(int16) {
   return btoa(bin);
 }
 
-// 官方 raw WebSocket 範例的欄位位置為主，備援兩種變體
-function setupVariants(target, resumeHandle) {
+// 官方 raw WebSocket 範例的欄位位置為主，備援兩種變體。
+// modality 可選 'AUDIO' 或 'TEXT'（純文字：不生成語音 → 沒有語音下載等待、額度減半）
+function variantsFor(target, resumeHandle, modality) {
   const resumption = resumeHandle === undefined ? {} : { handle: resumeHandle };
   const genCfg = {
-    responseModalities: ['AUDIO'],
+    responseModalities: [modality],
     inputAudioTranscription: {},
     outputAudioTranscription: {},
     translationConfig: { targetLanguageCode: target, echoTargetLanguage: false },
@@ -36,7 +37,7 @@ function setupVariants(target, resumeHandle) {
       setup: {
         model: `models/${MODEL}`,
         generationConfig: {
-          responseModalities: ['AUDIO'],
+          responseModalities: [modality],
           translationConfig: genCfg.translationConfig,
         },
         inputAudioTranscription: {},
@@ -46,12 +47,20 @@ function setupVariants(target, resumeHandle) {
   ];
 }
 
+function setupVariants(target, resumeHandle, textOnly) {
+  // 純文字模式：先試 TEXT；若這個 preview 模型不接受 TEXT，降級回 AUDIO（客戶端會把語音丟棄）
+  return textOnly
+    ? [...variantsFor(target, resumeHandle, 'TEXT'), ...variantsFor(target, resumeHandle, 'AUDIO')]
+    : variantsFor(target, resumeHandle, 'AUDIO');
+}
+
 export class LiveSession extends EventTarget {
-  constructor({ apiKey, target, tag }) {
+  constructor({ apiKey, target, tag, textOnly = false }) {
     super();
     this.apiKey = apiKey;
     this.target = target;
     this.tag = tag;
+    this.textOnly = textOnly;
     this.ws = null;
     this.state = 'idle';
     this.setupDone = false;
@@ -83,7 +92,7 @@ export class LiveSession extends EventTarget {
     this.ws = ws;
 
     ws.onopen = () => {
-      const variants = setupVariants(this.target, this.resumeHandle);
+      const variants = setupVariants(this.target, this.resumeHandle, this.textOnly);
       ws.send(JSON.stringify(variants[Math.min(this.variantIndex, variants.length - 1)]));
     };
 
@@ -105,7 +114,7 @@ export class LiveSession extends EventTarget {
   }
 
   handleSetupRejected(ev) {
-    if (this.variantIndex < setupVariants(this.target).length - 1) {
+    if (this.variantIndex < setupVariants(this.target, undefined, this.textOnly).length - 1) {
       this.variantIndex += 1;
       this.openSocket();
       return;
@@ -156,6 +165,8 @@ export class LiveSession extends EventTarget {
     if (c.modelTurn?.parts) {
       for (const part of c.modelTurn.parts) {
         if (part.inlineData?.data) this.emit('audio', { base64: part.inlineData.data });
+        // TEXT modality：譯文直接放在 parts[].text（沒有 outputTranscription）
+        if (part.text) this.emit('output-text', { text: part.text });
       }
     }
     if (c.turnComplete || c.generationComplete) this.emit('turn-complete', {});

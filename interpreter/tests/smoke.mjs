@@ -101,17 +101,34 @@ try {
   );
   check('翻譯完整開播後跳動點隱藏', true);
 
-  // 每輪播畢自動換新連線（背景 recycle）
+  // 每輪播畢確實斷線（v11 預設：省額度、連線永遠新鮮）
+  await page.waitForFunction(() => {
+    const s = window.__kouyiji.state.sessions.toForeign;
+    return !s || s.state === 'closed';
+  }, null, { timeout: 10000 });
+  check('語音播畢自動斷線（預設）', true);
   const seqBefore = await page.evaluate(() => window.__kouyiji.state.sessionSeq);
-  await page.waitForFunction(
-    (prev) => window.__kouyiji.state.sessionSeq > prev, seqBefore, { timeout: 10000 }
-  );
-  check('回合結束後自動更換連線', true, `seq ${seqBefore}→+`);
 
-  // 對方按住 → 下半區出現中文譯文
+  // 對方按住 → 下半區出現中文譯文；純文字模式（預設）不播中文語音
   await hold('#hold-them', 1500);
   await page.waitForFunction(() => document.querySelector('#mine-dst').textContent.length > 0, null, { timeout: 15000 });
   check('我方側出現中文譯文', true);
+  await page.waitForTimeout(1200); // mock 的 beep 已送達（已被純文字模式丟棄）
+  const themVoice = await page.evaluate(() => ({
+    pending: window.__kouyiji.audio.pendingPcm.length,
+    speaking: window.__kouyiji.audio.isSpeaking,
+  }));
+  check('對方方向純文字：不播中文語音', themVoice.pending === 0 && themVoice.speaking === false, JSON.stringify(themVoice));
+  await page.waitForFunction(() => {
+    const s = window.__kouyiji.state.sessions.toMine;
+    return !s || s.state === 'closed';
+  }, null, { timeout: 8000 });
+  check('字幕跑完即斷線（對方方向）', true);
+  // 下次按住自動重連（開頭進緩衝不漏字）
+  await hold('#hold-me', 700);
+  const seqAfter = await page.evaluate(() => window.__kouyiji.state.sessionSeq);
+  check('按下說話鈕自動重連', seqAfter > seqBefore, `seq ${seqBefore}→${seqAfter}`);
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
 
   // 快速點擊競態：不卡在錄音
   await hold('#hold-me', 20);
@@ -333,6 +350,30 @@ try {
   await page.click('#end-call');
   await page.waitForTimeout(800);
   if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
+  /* ---- v11：雙 key／純文字／自動斷線設定 ---- */
+  await page.click('#gear');
+  check('雙 key／純文字／自動斷線設定存在',
+    (await page.locator('#set-key2').isVisible())
+    && (await page.locator('#set-them-text').isVisible())
+    && (await page.locator('#set-auto-disc').isVisible()));
+  await page.fill('#set-key2', 'AIzaTest2');
+  await page.uncheck('#set-them-text'); // 關閉純文字 → 對方方向恢復語音
+  await page.click('#settings-save');
+  const k2 = await page.evaluate(() => JSON.parse(localStorage.getItem('kouyiji.settings.v1')).apiKeyThem);
+  check('第二把 key 已儲存', k2 === 'AIzaTest2', String(k2));
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  await hold('#hold-them', 1200);
+  check('關閉純文字後對方方向恢復語音等待', await page.evaluate(() => window.__kouyiji.audio.voiceHeld === true));
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  check('對方語音完整後開播', true);
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+  await page.click('#gear');
+  await page.check('#set-them-text'); // 恢復預設
+  await page.click('#settings-save');
 
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });

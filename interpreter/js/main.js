@@ -111,10 +111,17 @@ function routeText(tag, kind, text) {
 }
 
 /* ---------- 連線 ---------- */
+function themTextOnly() {
+  return settings.themTextOnly; // 對方→中文純文字（toMine 方向不使用語音）
+}
+
 function makeSession(tag) {
   state.sessionSeq += 1;
   const target = tag === 'toForeign' ? settings.foreignLang : MY_LANG;
-  const session = useMock() ? new MockSession({ tag }) : new LiveSession({ apiKey: settings.apiKey.trim(), target, tag });
+  // 雙 key：對方→中文 方向可用專用 key（額度加倍、互不搶限額），留空共用主 key
+  const key = (tag === 'toMine' && settings.apiKeyThem?.trim()) ? settings.apiKeyThem.trim() : settings.apiKey.trim();
+  const textOnly = tag === 'toMine' && themTextOnly();
+  const session = useMock() ? new MockSession({ tag }) : new LiveSession({ apiKey: key, target, tag, textOnly });
 
   session.addEventListener('status', (e) => {
     renderLive();
@@ -123,6 +130,8 @@ function makeSession(tag) {
   session.addEventListener('input-text', (e) => routeText(tag, 'input', e.detail.text));
   session.addEventListener('output-text', (e) => routeText(tag, 'output', e.detail.text));
   session.addEventListener('audio', (e) => {
+    // 純文字模式的保險：就算伺服器仍送語音（TEXT 被降級），也直接捨棄不播
+    if (tag === 'toMine' && themTextOnly()) return;
     const sec = audio.playBase64(e.detail.base64);
     if (sec) track('recv', sec);
     state.lastActivity = Date.now();
@@ -135,6 +144,15 @@ function makeSession(tag) {
     vlogMark('turn-complete');
     // 伺服器明確表示這輪生成完畢 → 語音可以開播了
     if (state.awaitVoice?.tag === tag) releaseVoiceNow('turn-complete');
+    else if (tag === 'toMine' && themTextOnly() && state.phase === 'call' && !state.holding) {
+      // 對方方向純文字：字幕跑完即結束；預設立刻斷線省額度（下次按住自動重連）
+      hidePendingDots();
+      if (settings.autoDisconnect && state.sessions[tag] === session) {
+        session.close();
+        state.sessions[tag] = null;
+        renderLive();
+      }
+    }
   });
   session.addEventListener('fatal', (e) => {
     const reason = e.detail.reason || '';
@@ -275,13 +293,18 @@ async function beginHold(side, btn) {
   cancelManualWait();
   audio.stopPlayback(); // 停掉還沒播完（含暫存）的譯文
   state.holding = side;
+  ensureSessions([side === 'me' ? 'toForeign' : 'toMine']); // 每輪斷線模式：按下即重連（開頭進緩衝不漏字）
   state.lastActivity = Date.now();
   if (settings.voiceAfterRelease) audio.beginVoiceHold(); // 錄音中譯文語音先暫存
   btn.classList.add('holding');
   document.body.dataset.holding = side;
   hidePendingDots();
   beginTurn(side === 'me' ? 'toForeign' : 'toMine');
-  vlogBegin({ tag: side === 'me' ? 'toForeign' : 'toMine', dir: side === 'me' ? `我 → ${foreign().native}` : `${foreign().native} → 我` });
+  vlogBegin({
+    tag: side === 'me' ? 'toForeign' : 'toMine',
+    dir: side === 'me' ? `我 → ${foreign().native}` : `${foreign().native} → 我`,
+    textOnly: side === 'them' && themTextOnly(),
+  });
   updateTalkLabels();
   renderLive();
 }
@@ -305,6 +328,12 @@ function releaseHold() {
   // → 補送 1.5 秒靜音讓它乾脆結束這一句
   sendSilenceTail(tag);
   vlogMark('release');
+
+  if (tag === 'toMine' && themTextOnly()) {
+    // 對方方向純文字：沒有中文語音要等，字幕跑完（turn-complete）就收尾＋斷線
+    audio.endVoiceHold(); // 順帶放掉可能殘留的暫存
+    return;
+  }
 
   if (settings.voiceAfterRelease && settings.manualPlay) {
     // 手動開播：不做任何自動判斷，等使用者看著接收指示器自己按「▶ 播放」
@@ -393,7 +422,9 @@ function watchPlaybackThenRecycle(tag) {
         vlogMark('recycle');
         state.sessions[tag]?.close();
         state.sessions[tag] = null;
-        ensureSessions([tag]);
+        // 預設每輪確實斷線省額度，按下說話鈕才重連；關閉此設定則立刻換一條新連線備用
+        if (!settings.autoDisconnect) ensureSessions([tag]);
+        renderLive();
       }
     }
   }, 300);
@@ -442,7 +473,7 @@ setInterval(() => {
   if (!el) return;
   const active = state.phase === 'call' && settings.voiceIndicator &&
     (state.holding || state.awaitVoice || state.manualWait);
-  if (!active || !vlog.cur) { el.classList.add('hidden'); return; }
+  if (!active || !vlog.cur || vlog.cur.textOnly) { el.classList.add('hidden'); return; } // 純文字回合沒有語音可指示
   el.classList.remove('hidden');
   const t = vlog.cur;
   const n = t.chunks.length;
@@ -631,7 +662,10 @@ function applyTheme() {
 function openSettings(firstRun = false) {
   $('#welcome').classList.toggle('hidden', !firstRun);
   $('#set-key').value = settings.apiKey;
+  $('#set-key2').value = settings.apiKeyThem;
   $('#set-demo').checked = settings.demoMode;
+  $('#set-them-text').checked = settings.themTextOnly;
+  $('#set-auto-disc').checked = settings.autoDisconnect;
   $('#set-talk-mode').value = settings.talkMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
   $('#set-manual-play').checked = settings.manualPlay;
@@ -668,7 +702,10 @@ function bindSettings() {
   $('#settings-save').addEventListener('click', () => {
     settings = saveSettings({
       apiKey: $('#set-key').value.trim(),
+      apiKeyThem: $('#set-key2').value.trim(),
       demoMode: $('#set-demo').checked,
+      themTextOnly: $('#set-them-text').checked,
+      autoDisconnect: $('#set-auto-disc').checked,
       talkMode: $('#set-talk-mode').value,
       voiceAfterRelease: $('#set-voice-after').checked,
       manualPlay: $('#set-manual-play').checked,

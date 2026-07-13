@@ -157,6 +157,10 @@
       <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
       <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
     </label>
+    <label class="field">對方→中文 專用 API key（選填）
+      <input type="password" id="set-key2" placeholder="留空＝共用上面的 key" autocomplete="off" />
+      <small>兩個方向各用一把 key：免費額度加倍、互不搶限額（可用另一個 Google 帳號申請）</small>
+    </label>
     <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
     <label class="field">說話按鈕操作方式
       <select id="set-talk-mode" aria-label="說話按鈕操作方式">
@@ -164,6 +168,14 @@
         <option value="toggle">點一下開始・再點一下結束</option>
       </select>
       <small>點擊式完全由你手動控制開始/結束，不做任何自動判斷</small>
+    </label>
+    <label class="field checkbox">
+      <input type="checkbox" id="set-them-text" />
+      <span>對方說話只出中文字幕（不播中文語音）<small style="display:block">你看字幕比等語音快得多；不用等中文語音下載、額度省一半。你說的話仍會翻成外語語音播給對方聽。關閉＝雙向都有語音</small></span>
+    </label>
+    <label class="field checkbox">
+      <input type="checkbox" id="set-auto-disc" />
+      <span>每輪結束自動斷線<small style="display:block">語音播完／字幕跑完就確實斷開連線省額度，下次按住說話時自動重連（開頭有緩衝，不會漏字）</small></span>
     </label>
     <label class="field checkbox">
       <input type="checkbox" id="set-voice-after" />
