@@ -492,11 +492,50 @@ function updateReplayBtn() {
   $('#replay-them').classList.toggle('hidden', !show);
 }
 
+// 重播前把靜音裁掉：伺服器常在語音前後夾帶大段空白（第二輪起尤其明顯），
+// 直接重播會先安靜 2-3 秒。以 10ms 視窗的峰值做閘門：裁掉頭尾、中段長靜音壓縮到 0.25 秒。
+function trimSilence(chunks) {
+  let total = 0;
+  for (const c of chunks) total += c.length;
+  const all = new Int16Array(total);
+  let o = 0;
+  for (const c of chunks) { all.set(c, o); o += c.length; }
+
+  const WIN = 240; // 10ms @ 24kHz
+  const THR = 400; // 峰值門檻（約 -38 dBFS，低於此視為無聲）
+  const nWin = Math.ceil(all.length / WIN);
+  const loud = new Uint8Array(nWin);
+  for (let w = 0; w < nWin; w++) {
+    const end = Math.min(all.length, (w + 1) * WIN);
+    for (let i = w * WIN; i < end; i++) {
+      if (Math.abs(all[i]) > THR) { loud[w] = 1; break; }
+    }
+  }
+  const first = loud.indexOf(1);
+  if (first === -1) return all; // 整段無聲（不太可能）：原樣播
+  const last = loud.lastIndexOf(1);
+
+  const keep = [];
+  let silentRun = 0;
+  for (let w = Math.max(0, first - 5); w <= Math.min(nWin - 1, last + 5); w++) {
+    if (loud[w]) { silentRun = 0; keep.push(w); }
+    else if ((silentRun += 1) <= 25) keep.push(w); // 中段停頓最多保留 0.25s
+  }
+  const out = new Int16Array(keep.length * WIN);
+  let oo = 0;
+  for (const w of keep) {
+    const seg = all.subarray(w * WIN, Math.min(all.length, (w + 1) * WIN));
+    out.set(seg, oo);
+    oo += seg.length;
+  }
+  return out.subarray(0, oo);
+}
+
 function replayLast() {
   if (state.phase !== 'call' || state.holding || !state.replay.secs) return;
   audio.kick();
   audio.stopPlayback(); // 從頭重播（若還在播就先停掉）
-  for (const c of state.replay.chunks) audio.scheduleInt16(c);
+  audio.scheduleInt16(trimSilence(state.replay.chunks)); // 單一連續 buffer：無縫、無空白
   state.lastActivity = Date.now();
 }
 
@@ -646,8 +685,8 @@ function renderLangUI() {
   $('#theirs-lang').textContent = lang.native;
   $('#theirs-live').textContent = lang.ui.live;
   $('#theirs-src-label').textContent = lang.ui.original;
-  $('#replay-them-label').textContent = lang.ui.replay;
   $('#replay-them').setAttribute('aria-label', lang.ui.replay);
+  $('#replay-them').setAttribute('title', lang.ui.replay);
   updateTalkLabels();
   $('#pair-foreign').textContent = lang.native;
   $('#listen-lang').textContent = `${lang.native} → 中文`;

@@ -383,7 +383,9 @@ try {
   await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
   await page.waitForSelector('#replay-them:not(.hidden)', { timeout: 5000 });
   check('語音播出後出現重播鍵', true);
-  check('重播鍵標籤為讀者語言', (await page.locator('#replay-them-label').textContent()) === 'Replay');
+  check('重播鍵標籤為讀者語言', (await page.locator('#replay-them').getAttribute('aria-label')) === 'Replay');
+  const rbox = await page.locator('#replay-them').boundingBox();
+  check('重播鍵為圓形小圖示（不佔版面）', rbox.width <= 48 && Math.abs(rbox.width - rbox.height) < 2, JSON.stringify(rbox));
   await page.waitForFunction(() => !window.__kouyiji.audio.isSpeaking, null, { timeout: 6000 });
   await page.click('#replay-them');
   check('點擊重播立即播放（本機緩衝，不耗額度）', await page.evaluate(() => window.__kouyiji.audio.isSpeaking));
@@ -391,6 +393,18 @@ try {
   await hold('#hold-them', 1200);
   await page.waitForTimeout(2500);
   check('對方回合後重播鍵仍可用', await page.evaluate(() => !document.querySelector('#replay-them').classList.contains('hidden')));
+  // v13：重播自動去除空白音段（前置 2 秒靜音應被裁掉，只剩 0.5 秒語音＋少量前導）
+  const trimDur = await page.evaluate(() => {
+    const k = window.__kouyiji;
+    const silent = new Int16Array(48000); // 2s 靜音
+    const tone = new Int16Array(12000); // 0.5s 音
+    for (let i = 0; i < tone.length; i++) tone[i] = Math.round(Math.sin(i / 8) * 8000);
+    k.state.replay = { chunks: [silent, tone], secs: 2.5 };
+    document.querySelector('#replay-them').click();
+    return (k.audio.speakUntil - performance.now()) / 1000;
+  });
+  check('重播自動去除空白音段', trimDur > 0.3 && trimDur < 1.2, `${trimDur.toFixed(2)}s`);
+  await page.waitForFunction(() => !window.__kouyiji.audio.isSpeaking, null, { timeout: 5000 });
   await hold('#hold-me', 300);
   check('我方新一句開始即清除舊語音', await page.evaluate(() => window.__kouyiji.state.replay.secs === 0));
   await page.click('#end-call');
