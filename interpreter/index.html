@@ -134,7 +134,12 @@
       <span class="live"><span class="live-dot"></span><span id="listen-state">未聆聽</span></span>
       <button id="listen-end" class="icon-btn end" aria-label="結束聆聽"><svg width="22" height="22"><use href="#i-end"/></svg></button>
     </header>
-    <div id="listen-feed" aria-live="polite"></div>
+    <!-- 上下雙視窗：上＝中文翻譯、下＝原文；中間分界可拖動調整比例 -->
+    <div id="listen-split">
+      <div id="listen-dst-pane" aria-live="polite"></div>
+      <div id="listen-divider" role="separator" aria-label="拖動調整上下視窗比例"><i></i></div>
+      <div id="listen-src-pane"></div>
+    </div>
     <div class="wave" id="wave-listen" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
     <div id="listen-bar">
       <button id="listen-toggle" aria-label="開始聆聽">
@@ -156,86 +161,117 @@
     </div>
   </dialog>
 
-  <!-- ============ 設定 ============ -->
+  <!-- ============ 設定（分頁籤） ============ -->
   <dialog id="settings">
     <h2>設定</h2>
-    <div id="welcome" class="welcome hidden">
-      <p><strong>歡迎使用口譯機 👋</strong></p>
-      <p>純前端 app：你的 Gemini API key 只存在這台裝置，直連 Google。
-        到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請，或先試玩：</p>
-      <button id="demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
+    <div class="settings-tabs" role="tablist" aria-label="設定分類">
+      <button type="button" class="stab-btn active" data-tab="api" role="tab" aria-selected="true">API 設定</button>
+      <button type="button" class="stab-btn" data-tab="call" role="tab" aria-selected="false">對話翻譯</button>
+      <button type="button" class="stab-btn" data-tab="listen" role="tab" aria-selected="false">聆聽</button>
     </div>
-    <label class="field">Gemini API key
-      <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
-      <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
-    </label>
-    <label class="field">對方→中文 專用 API key（選填）
-      <input type="password" id="set-key2" placeholder="留空＝共用上面的 key" autocomplete="off" />
-      <small>兩個方向各用一把 key：免費額度加倍、互不搶限額（可用另一個 Google 帳號申請）</small>
-    </label>
-    <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
-    <label class="field">說話按鈕操作方式
-      <select id="set-talk-mode" aria-label="說話按鈕操作方式">
-        <option value="hold">按住說話（放開即結束）</option>
-        <option value="toggle">點一下開始・再點一下結束</option>
-      </select>
-      <small>點擊式完全由你手動控制開始/結束，不做任何自動判斷</small>
-    </label>
-    <label class="field checkbox">
-      <input type="checkbox" id="set-them-text" />
-      <span>對方說話只出中文字幕（不播中文語音）<small style="display:block">你看字幕比等語音快得多；不用等中文語音下載、額度省一半。你說的話仍會翻成外語語音播給對方聽。關閉＝雙向都有語音</small></span>
-    </label>
-    <label class="field checkbox">
-      <input type="checkbox" id="set-auto-disc" />
-      <span>每輪結束自動斷線<small style="display:block">語音播完／字幕跑完就確實斷開連線省額度，下次按住說話時自動重連（開頭有緩衝，不會漏字）</small></span>
-    </label>
-    <label class="field checkbox">
-      <input type="checkbox" id="set-refine" />
-      <span>聆聽字幕 AI 潤飾<small style="display:block">每句完成後依上下文自動改寫成通順中文並原地替換（標 ✨）。即時粗譯照常先顯示；耗少量文字額度</small></span>
-    </label>
-    <label class="field checkbox">
-      <input type="checkbox" id="set-voice-after" />
-      <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
-    </label>
-    <div id="voice-params" class="subfields">
+
+    <!-- ===== API 設定 ===== -->
+    <div class="stab" data-tab="api">
+      <div id="welcome" class="welcome hidden">
+        <p><strong>歡迎使用口譯機 👋</strong></p>
+        <p>純前端 app：你的 Gemini API key 只存在這台裝置，直連 Google。
+          到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請，或先試玩：</p>
+        <button id="demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
+      </div>
+      <label class="field">Gemini API key
+        <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
+        <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
+      </label>
+      <label class="field">對方→中文 專用 API key（選填）
+        <input type="password" id="set-key2" placeholder="留空＝共用上面的 key" autocomplete="off" />
+        <small>兩個方向各用一把 key：免費額度加倍、互不搶限額（可用另一個 Google 帳號申請）</small>
+      </label>
+      <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
+      <p id="usage-line" class="usage"></p>
+      <h3>疑難排解</h3>
+      <button id="run-diag">🩺 執行連線診斷</button>
+      <div id="diag-results" class="hidden"></div>
+      <button id="copy-diag" class="hidden">複製診斷結果</button>
+      <button id="open-voicelog">🎧 語音記錄（逐條分析斷音）</button>
+      <h3>一般</h3>
+      <label class="field">介面主題
+        <select id="set-theme" aria-label="介面主題">
+          <option value="dark">深色</option>
+          <option value="light">淺色</option>
+        </select>
+      </label>
+      <label class="field">字級
+        <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" aria-label="字級" />
+      </label>
+      <label class="field">閒置幾分鐘自動結束省額度
+        <input type="number" id="set-idle" min="0" step="1" />
+      </label>
+    </div>
+
+    <!-- ===== 對話翻譯 ===== -->
+    <div class="stab hidden" data-tab="call">
+      <label class="field">說話按鈕操作方式
+        <select id="set-talk-mode" aria-label="說話按鈕操作方式">
+          <option value="hold">按住說話（放開即結束）</option>
+          <option value="toggle">點一下開始・再點一下結束</option>
+        </select>
+        <small>點擊式完全由你手動控制開始/結束，不做任何自動判斷</small>
+      </label>
       <label class="field checkbox">
-        <input type="checkbox" id="set-manual-play" />
-        <span>手動開播：放開後由我按「▶ 播放」<small style="display:block">完全不做自動判斷。放開錄音鈕後語音持續暫存，畫面出現播放鈕，搭配接收指示器自行決定開播時機</small></span>
+        <input type="checkbox" id="set-them-text" />
+        <span>對方說話只出中文字幕（不播中文語音）<small style="display:block">你看字幕比等語音快得多；不用等中文語音下載、額度省一半。你說的話仍會翻成外語語音播給對方聽。關閉＝雙向都有語音</small></span>
       </label>
-      <label class="field">完整判定：文字與語音都停止 <strong id="lbl-voice-idle"></strong> 秒後開播
-        <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
-        <small>字幕與語音資料都不再增加才開播（缺一不可）。調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-auto-disc" />
+        <span>每輪結束自動斷線<small style="display:block">語音播完／字幕跑完就確實斷開連線省額度，下次按住說話時自動重連（開頭有緩衝，不會漏字）</small></span>
       </label>
-      <label class="field">最長等待 <strong id="lbl-voice-max"></strong> 秒（保險絲，超過必定開播）
-        <input type="range" id="set-voice-max" min="3" max="30" step="1" aria-label="最長等待秒數" />
+      <label class="field checkbox">
+        <input type="checkbox" id="set-voice-after" />
+        <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
       </label>
-      <label class="field">放開後補送靜音 <strong id="lbl-tail"></strong> 秒
-        <input type="range" id="set-tail" min="0.5" max="3" step="0.1" aria-label="補送靜音秒數" />
-        <small>幫伺服器把句子收尾；翻譯常出現半截時調長</small>
+      <div id="voice-params" class="subfields">
+        <label class="field checkbox">
+          <input type="checkbox" id="set-manual-play" />
+          <span>手動開播：放開後由我按「▶ 播放」<small style="display:block">完全不做自動判斷。放開錄音鈕後語音持續暫存，畫面出現播放鈕，搭配接收指示器自行決定開播時機</small></span>
+        </label>
+        <label class="field">完整判定：文字與語音都停止 <strong id="lbl-voice-idle"></strong> 秒後開播
+          <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
+          <small>字幕與語音資料都不再增加才開播（缺一不可）。調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
+        </label>
+        <label class="field">最長等待 <strong id="lbl-voice-max"></strong> 秒（保險絲，超過必定開播）
+          <input type="range" id="set-voice-max" min="3" max="30" step="1" aria-label="最長等待秒數" />
+        </label>
+        <label class="field">放開後補送靜音 <strong id="lbl-tail"></strong> 秒
+          <input type="range" id="set-tail" min="0.5" max="3" step="0.1" aria-label="補送靜音秒數" />
+          <small>幫伺服器把句子收尾；翻譯常出現半截時調長</small>
+        </label>
+      </div>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-voice-ind" />
+        <span>對話中顯示語音接收指示器<small style="display:block">即時顯示已收到幾條/幾秒翻譯語音、仍在下載還是已靜止——用來確認斷音是不是伺服器端造成，以及判斷開播時機</small></span>
       </label>
     </div>
-    <label class="field checkbox">
-      <input type="checkbox" id="set-voice-ind" />
-      <span>對話中顯示語音接收指示器<small style="display:block">即時顯示已收到幾條/幾秒翻譯語音、仍在下載還是已靜止——用來確認斷音是不是伺服器端造成，以及判斷開播時機</small></span>
-    </label>
-    <label class="field">介面主題
-      <select id="set-theme" aria-label="介面主題">
-        <option value="dark">深色</option>
-        <option value="light">淺色</option>
-      </select>
-    </label>
-    <label class="field">字級
-      <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" aria-label="字級" />
-    </label>
-    <label class="field">閒置幾分鐘自動結束省額度
-      <input type="number" id="set-idle" min="0" step="1" />
-    </label>
-    <p id="usage-line" class="usage"></p>
-    <h3>疑難排解</h3>
-    <button id="run-diag">🩺 執行連線診斷</button>
-    <div id="diag-results" class="hidden"></div>
-    <button id="copy-diag" class="hidden">複製診斷結果</button>
-    <button id="open-voicelog">🎧 語音記錄（逐條分析斷音）</button>
+
+    <!-- ===== 聆聽 ===== -->
+    <div class="stab hidden" data-tab="listen">
+      <label class="field checkbox">
+        <input type="checkbox" id="set-refine" />
+        <span>字幕 AI 潤飾<small style="display:block">每句完成後依上下文自動改寫成通順中文並原地替換。即時粗譯照常先顯示；耗少量文字額度</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-refine-mark" />
+        <span>標示潤飾過的句子（綠色虛線）<small style="display:block">潤飾完成的句子加上綠色虛線底線＋✨，一眼看出哪些已重整</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-listen-src" />
+        <span>顯示原文視窗（下半）<small style="display:block">上＝中文翻譯、下＝原文，中間的分界可上下拖動調整比例。關閉＝翻譯全螢幕</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-listen-div" />
+        <span>段落分隔線<small style="display:block">在段落（伺服器切分的語段）之間加灰色細線，方便閱讀；講者換語言時另有 🌐 標注</small></span>
+      </label>
+    </div>
+
     <div class="dialog-actions">
       <button id="settings-close">取消</button>
       <button id="settings-save" class="primary">儲存</button>

@@ -215,18 +215,39 @@ body[data-manual="on"] #pending-strip { height: 3.2rem; }
 #view-listen { padding-bottom: env(safe-area-inset-bottom); }
 .listen-head { padding: calc(env(safe-area-inset-top) + 0.7rem) 1.1rem 0.7rem; gap: 0.6rem; border-bottom: 1px solid var(--line); }
 .listen-head .live { flex: 1; justify-content: flex-end; }
-#listen-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; }
-.listen-turn .dst { font-size: calc(1.3rem * var(--font-scale)); white-space: pre-line; }
-.listen-turn .src { display: block; margin-top: 0.15rem; white-space: pre-line; }
+/* 上下雙視窗：上＝中文翻譯（佔比 --split，可拖）、下＝原文 */
+#listen-split { flex: 1; min-height: 0; display: flex; flex-direction: column; --split: 0.6; }
+#listen-dst-pane { flex: var(--split) 1 0; min-height: 0; overflow-y: auto; padding: 0.8rem 1.2rem; }
+#listen-src-pane { flex: calc(1 - var(--split)) 1 0; min-height: 0; overflow-y: auto; padding: 0.6rem 1.2rem; background: var(--bg); }
+#listen-split.no-src #listen-src-pane, #listen-split.no-src #listen-divider { display: none; }
+#listen-divider {
+  flex: none; height: 1.5rem; touch-action: none; cursor: row-resize;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+#listen-divider i { width: 3.4rem; height: 0.32rem; border-radius: 0.16rem; background: var(--dim); opacity: 0.65; pointer-events: none; }
+
+.lt-dst .txt { font-size: calc(1.3rem * var(--font-scale)); font-weight: 600; line-height: 1.6; white-space: pre-line; }
+.lt-src .txt { font-size: calc(0.95rem * var(--font-scale)); color: var(--dim); line-height: 1.6; white-space: pre-line; }
+/* 段落分隔線（可在設定關閉） */
+#view-listen.with-dividers .lt-dst + .lt-dst,
+#view-listen.with-dividers .lt-src + .lt-src {
+  border-top: 1px solid var(--line); margin-top: 0.6rem; padding-top: 0.6rem;
+}
 /* 語言偵測標注：講者語言改變時掛 chip */
-.listen-turn .lang-chip {
+.lang-chip {
   display: inline-block; margin-bottom: 0.3rem;
   padding: 0.15rem 0.6rem; border-radius: 999px;
   border: 1px solid var(--accent); color: var(--accent);
   font-size: 0.72rem; font-weight: 700;
 }
-/* AI 潤飾完成：句尾亮 ✨ */
-.listen-turn[data-refined="1"] .dst::after { content: " ✨"; font-size: 0.8em; opacity: 0.75; }
+/* AI 潤飾完成：綠色虛線底線＋✨（可在設定關閉標示） */
+#view-listen.mark-refined .lt-dst.refined .txt {
+  text-decoration: underline dashed var(--ok-text);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.28em;
+}
+#view-listen.mark-refined .lt-dst.refined .txt::after { content: " ✨"; font-size: 0.75em; opacity: 0.8; }
 #view-listen .wave { margin: 0.3rem 0; }
 #listen-bar { padding: 0.6rem 1.2rem 1rem; }
 #listen-toggle {
@@ -259,6 +280,19 @@ dialog a { color: var(--accent); }
 .tr-src { font-size: 0.85rem; color: var(--dim); line-height: 1.5; }
 .tr-dst { font-size: 1rem; font-weight: 600; line-height: 1.5; }
 .tr-empty { color: var(--dim); font-size: 0.9rem; }
+
+/* 設定分頁籤 */
+.settings-tabs {
+  display: flex; gap: 0.3rem; margin-bottom: 0.8rem;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 0.22rem;
+  position: sticky; top: 0; z-index: 2;
+}
+.stab-btn {
+  flex: 1; border: none; background: transparent; color: var(--dim);
+  border-radius: 999px; padding: 0.5rem 0.4rem; font-weight: 700; font-size: 0.85rem;
+  min-height: 40px;
+}
+.stab-btn.active { background: var(--accent); color: #fff; }
 
 .field { display: block; margin: 0.8rem 0; font-size: 0.95rem; }
 .field input:not([type="checkbox"]) { display: block; width: 100%; margin-top: 0.35rem; }

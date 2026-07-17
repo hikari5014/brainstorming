@@ -13,7 +13,11 @@ const DEFAULTS = {
   idleDisconnectMin: 5, // 幾分鐘沒對話就斷線省額度（按鈕按下自動重連）
   talkMode: 'hold', // 'hold' 按住說話 | 'toggle' 點一下開始、再點一下結束（全手動，無自動判斷）
   themTextOnly: true, // 對方→中文只出字幕不播中文語音（讀字幕比聽語音快、免語音下載等待、省一半額度）
-  refineListen: true, // 聆聽字幕 AI 潤飾：每句完成後依上下文改寫成通順中文，原地替換（✨）
+  refineListen: true, // 聆聽字幕 AI 潤飾：每句完成後依上下文改寫成通順中文，原地替換
+  refineMark: true, // 標示潤飾過的句子（綠色虛線＋✨）
+  listenSrcPane: true, // 聆聽顯示原文視窗（下半）
+  listenDividers: true, // 聆聽段落之間灰色分隔線
+  listenSplit: 0.6, // 上下視窗比例（中文視窗佔比，分界可拖動調整）
   autoDisconnect: true, // 每輪結束確實斷線省額度，下次按住自動重連（開頭有緩衝不漏字）
   voiceAfterRelease: true, // 放開錄音鈕後，等翻譯完整才播語音（字幕仍即時）
   manualPlay: false, // 手動開播：放開後不自動判斷，由使用者按「▶ 播放」觸發

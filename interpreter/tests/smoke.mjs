@@ -52,6 +52,9 @@ async function hold(selector, ms) {
   await page.mouse.up();
 }
 
+// v18：設定分頁籤（api/call/listen）
+const stab = (t) => page.click(`.stab-btn[data-tab="${t}"]`);
+
 try {
   await page.addInitScript(() => {
     localStorage.setItem('kouyiji.settings.v1', JSON.stringify({ demoMode: true }));
@@ -159,35 +162,72 @@ try {
   await page.click('#start-btn');
   await page.waitForSelector('#view-listen:not(.hidden)');
   check('進入聆聽畫面（正向單區）', true);
-  await page.waitForFunction(() => document.querySelector('#listen-feed .listen-turn .dst')?.textContent.length > 0, null, { timeout: 20000 });
+  await page.waitForFunction(() => document.querySelector('#listen-dst-pane .lt-dst .txt')?.textContent.length > 0, null, { timeout: 20000 });
   check('聆聽模式：連續字幕出現', true);
+  // v18：上下雙視窗（上＝中文、下＝原文）＋可拖分界
+  check('雙視窗與分界存在',
+    (await page.locator('#listen-divider').isVisible()) && (await page.locator('#listen-src-pane').isVisible()));
+  await page.waitForFunction(() => document.querySelector('#listen-src-pane .lt-src .txt')?.textContent.length > 0, null, { timeout: 10000 });
+  check('原文顯示於下視窗（不擠壓翻譯）', true);
+  const db = await page.locator('#listen-divider').boundingBox();
+  await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(db.x + db.width / 2, db.y + db.height / 2 - 120, { steps: 6 });
+  await page.mouse.up();
+  const splitVal = await page.evaluate(() => window.__kouyiji.settings.listenSplit);
+  check('拖動分界調整比例並記住', splitVal < 0.55 && splitVal >= 0.15, `split=${splitVal}`);
   // v17：語言偵測標注（mock 的 input-text 附 en-US）
-  await page.waitForSelector('.listen-turn .lang-chip:not(.hidden)', { timeout: 10000 });
-  check('偵測語言標注', (await page.locator('.listen-turn .lang-chip').first().textContent()).includes('英語'));
+  await page.waitForSelector('#listen-dst-pane .lang-chip:not(.hidden)', { timeout: 10000 });
+  check('偵測語言標注', (await page.locator('#listen-dst-pane .lang-chip').first().textContent()).includes('英語'));
   // v17：句子之間換行（「哈囉！」的驚嘆號後斷行）
   await page.waitForFunction(
-    () => [...document.querySelectorAll('#listen-feed .dst')].some((el) => el.textContent.includes('\n')),
+    () => [...document.querySelectorAll('#listen-dst-pane .txt')].some((el) => el.textContent.includes('\n')),
     null, { timeout: 15000 }
   );
   check('句子之間自動換行', true);
-  // v17：AI 潤飾完成 → ✨ 標記（demo 模擬 400ms 後完成）
+  // v17+v18：AI 潤飾完成 → 綠色虛線標示
   await page.waitForFunction(
-    () => [...document.querySelectorAll('#listen-feed .listen-turn')].some((el) => el.dataset.refined === '1'),
+    () => document.querySelector('#listen-dst-pane .lt-dst.refined') !== null,
     null, { timeout: 15000 }
   );
-  check('AI 潤飾原地替換（✨）', true);
+  check('AI 潤飾原地替換（綠色虛線標示）',
+    await page.evaluate(() => document.querySelector('#view-listen').classList.contains('mark-refined')));
+  check('段落分隔線啟用', await page.evaluate(() => document.querySelector('#view-listen').classList.contains('with-dividers')));
   await page.click('#listen-toggle');
   check('點按暫停聆聽', (await page.locator('#listen-state').textContent()) === '已暫停');
   await page.click('#listen-end');
   await page.waitForSelector('#transcript[open]', { timeout: 5000 });
   await page.click('#tr-close');
   check('聆聽結束 → 逐字稿', true);
+  // v18：設定分頁籤＋聆聽頁籤內容
   await page.click('#gear');
-  check('AI 潤飾設定存在', await page.locator('#set-refine').isVisible());
-  await page.click('#settings-close');
+  check('設定分三個頁籤', (await page.locator('.stab-btn').count()) === 3);
+  check('預設顯示 API 設定頁（含診斷）',
+    (await page.locator('#set-key').isVisible()) && (await page.locator('#run-diag').isVisible()));
+  await stab('listen');
+  check('聆聽頁籤：潤飾/標示/原文視窗/分隔線開關齊全',
+    (await page.locator('#set-refine').isVisible()) && (await page.locator('#set-refine-mark').isVisible())
+    && (await page.locator('#set-listen-src').isVisible()) && (await page.locator('#set-listen-div').isVisible()));
+  // 關閉原文視窗 → 下半隱藏
+  await page.uncheck('#set-listen-src');
+  await page.click('#settings-save');
+  await page.click('[data-mode="listen"]');
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-listen:not(.hidden)');
+  check('關閉原文視窗生效（翻譯全螢幕）',
+    await page.evaluate(() => document.querySelector('#listen-src-pane').offsetParent === null));
+  await page.click('#listen-end');
+  await page.waitForTimeout(600);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+  await page.click('#gear');
+  await stab('listen');
+  await page.check('#set-listen-src'); // 還原
+  await page.click('#settings-save');
+  await page.click('[data-mode="call"]');
 
   /* ---- 語音完整偵測參數可調 ---- */
   await page.click('#gear');
+  await stab('call');
   check('偵測參數滑桿存在', await page.locator('#set-voice-idle').isVisible());
   await page.evaluate(() => {
     for (const [id, v] of [['set-voice-idle', '0.8'], ['set-tail', '2']]) {
@@ -237,6 +277,7 @@ try {
   /* ---- 點擊收音模式 ---- */
   await page.click('[data-mode="call"]');
   await page.click('#gear');
+  await stab('call');
   await page.selectOption('#set-talk-mode', 'toggle');
   await page.click('#settings-save');
   await page.click('#start-btn');
@@ -323,6 +364,7 @@ try {
 
   /* ---- v10：語音接收指示器＋手動開播 ---- */
   await page.click('#gear');
+  await stab('call');
   check('指示器/手動開播設定存在',
     (await page.locator('#set-voice-ind').isVisible()) && (await page.locator('#set-manual-play').isVisible()));
   await page.selectOption('#set-talk-mode', 'hold');
@@ -354,6 +396,7 @@ try {
 
   // 兩個開關都關掉 → 指示器隱藏、恢復自動開播
   await page.click('#gear');
+  await stab('call');
   await page.uncheck('#set-manual-play');
   await page.uncheck('#set-voice-ind');
   await page.click('#settings-save');
@@ -371,11 +414,11 @@ try {
 
   /* ---- v11：雙 key／純文字／自動斷線設定 ---- */
   await page.click('#gear');
-  check('雙 key／純文字／自動斷線設定存在',
-    (await page.locator('#set-key2').isVisible())
-    && (await page.locator('#set-them-text').isVisible())
-    && (await page.locator('#set-auto-disc').isVisible()));
+  check('雙 key 設定在 API 頁籤', await page.locator('#set-key2').isVisible());
   await page.fill('#set-key2', 'AIzaTest2');
+  await stab('call');
+  check('純文字／自動斷線設定在對話頁籤',
+    (await page.locator('#set-them-text').isVisible()) && (await page.locator('#set-auto-disc').isVisible()));
   await page.uncheck('#set-them-text'); // 關閉純文字 → 對方方向恢復語音
   await page.click('#settings-save');
   const k2 = await page.evaluate(() => JSON.parse(localStorage.getItem('kouyiji.settings.v1')).apiKeyThem);
@@ -390,6 +433,7 @@ try {
   await page.waitForTimeout(800);
   if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
   await page.click('#gear');
+  await stab('call');
   await page.check('#set-them-text'); // 恢復預設
   await page.click('#settings-save');
 

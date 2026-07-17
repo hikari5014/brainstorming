@@ -30,6 +30,7 @@ const state = {
   lastSavable: null, // 最後一輪完成的內容 {side, src, dst, lang}（☆ 收藏用）
   listenPrevLang: '', // 聆聽模式：前一輪偵測到的語言（變化才標注）
   refineCtx: [], // 聆聽 AI 潤飾的上下文（最近幾句潤飾後的譯文）
+  refineFailToasted: false, // 潤飾失敗只提示一次
   lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
@@ -281,9 +282,11 @@ async function startSession(mode) {
   $('#view-listen').classList.toggle('hidden', mode !== 'listen');
   ensureSessions(mode === 'call' ? ['toForeign', 'toMine'] : ['toMine']);
   if (mode === 'listen') {
-    $('#listen-feed').innerHTML = '';
+    $('#listen-dst-pane').innerHTML = '';
+    $('#listen-src-pane').innerHTML = '';
     state.listenPrevLang = '';
     state.refineCtx = [];
+    applyListenPrefs();
     setListening(true); // 進入即開始聆聽，可點按暫停
   }
   acquireWakeLock();
@@ -783,27 +786,70 @@ function breakSentences(text) {
     .replace(/\n+$/, '');
 }
 
+// 上下雙視窗：每個語段在「中文視窗」與「原文視窗」各掛一個區塊，長原文不再擠壓翻譯
 function renderListenTurn(turn) {
-  let el = turn._el;
-  if (!el) {
-    el = document.createElement('div');
-    el.className = 'listen-turn';
-    el.innerHTML = '<span class="lang-chip hidden"></span><div class="dst"></div><div class="src"></div>';
-    $('#listen-feed').appendChild(el);
-    while ($('#listen-feed').children.length > 80) $('#listen-feed').firstChild.remove();
-    turn._el = el;
+  if (!turn._elDst) {
+    const d = document.createElement('div');
+    d.className = 'lt-dst';
+    d.innerHTML = '<span class="lang-chip hidden"></span><div class="txt"></div>';
+    $('#listen-dst-pane').appendChild(d);
+    const s = document.createElement('div');
+    s.className = 'lt-src';
+    s.innerHTML = '<div class="txt"></div>';
+    $('#listen-src-pane').appendChild(s);
+    turn._elDst = d;
+    turn._elSrc = s;
+    while ($('#listen-dst-pane').children.length > 120) $('#listen-dst-pane').firstChild.remove();
+    while ($('#listen-src-pane').children.length > 120) $('#listen-src-pane').firstChild.remove();
   }
   // 語言偵測標注：講者語言改變時掛上 chip（例：演講中突然切成英語）
   if (turn.srcCode && !turn._langTagged && turn.srcCode !== state.listenPrevLang) {
     turn._langTagged = true;
     state.listenPrevLang = turn.srcCode;
-    const chip = el.querySelector('.lang-chip');
+    const chip = turn._elDst.querySelector('.lang-chip');
     chip.textContent = `🌐 ${langNameOf(turn.srcCode)}`;
     chip.classList.remove('hidden');
   }
-  el.querySelector('.dst').textContent = breakSentences(turn.dst);
-  el.querySelector('.src').textContent = breakSentences(turn.src);
-  $('#listen-feed').scrollTop = $('#listen-feed').scrollHeight;
+  turn._elDst.querySelector('.txt').textContent = breakSentences(turn.dst);
+  turn._elSrc.querySelector('.txt').textContent = breakSentences(turn.src);
+  const dp = $('#listen-dst-pane');
+  dp.scrollTop = dp.scrollHeight;
+  const sp = $('#listen-src-pane');
+  sp.scrollTop = sp.scrollHeight;
+}
+
+// 上下視窗分界拖動（比例記在設定，重開 app 仍記得）
+function bindListenDivider() {
+  const div = $('#listen-divider');
+  const split = $('#listen-split');
+  let dragging = false;
+  const apply = (frac) => split.style.setProperty('--split', Math.min(0.85, Math.max(0.15, frac)));
+  div.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    div.setPointerCapture?.(e.pointerId);
+  });
+  div.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const r = split.getBoundingClientRect();
+    if (r.height > 0) apply((e.clientY - r.top) / r.height);
+  });
+  for (const evt of ['pointerup', 'pointercancel']) {
+    div.addEventListener(evt, () => {
+      if (!dragging) return;
+      dragging = false;
+      const v = parseFloat(split.style.getPropertyValue('--split')) || 0.6;
+      settings = saveSettings({ listenSplit: Math.round(v * 100) / 100 });
+    });
+  }
+}
+
+// 聆聽外觀開關（原文視窗／分隔線／潤飾標示／視窗比例）
+function applyListenPrefs() {
+  $('#listen-split').classList.toggle('no-src', !settings.listenSrcPane);
+  $('#view-listen').classList.toggle('with-dividers', settings.listenDividers !== false);
+  $('#view-listen').classList.toggle('mark-refined', settings.refineMark !== false);
+  $('#listen-split').style.setProperty('--split', settings.listenSplit ?? 0.6);
 }
 
 /* ---------- 聆聽字幕 AI 潤飾：即時粗譯先上，句子完成後依上下文改寫、原地替換 ---------- */
@@ -843,13 +889,20 @@ async function refineTurn(t, rowIdPromise) {
   const rough = t.dst.trim();
   if (!rough) return;
   const polished = await requestRefine(t.src.trim(), rough, state.refineCtx.slice(-3));
-  if (!polished) return; // 潤飾失敗 → 粗譯原樣保留
+  if (!polished) {
+    // 潤飾失敗 → 粗譯原樣保留；真實 API 失敗時提示一次（額度/網路/金鑰）
+    if (!useMock() && !state.refineFailToasted) {
+      state.refineFailToasted = true;
+      toast('AI 潤飾暫時失敗，字幕保留粗譯（檢查額度或網路）。', 6000);
+    }
+    return;
+  }
   state.refineCtx.push(polished);
   if (state.refineCtx.length > 6) state.refineCtx.shift();
   t.dst = polished;
-  if (t._el) {
-    t._el.querySelector('.dst').textContent = breakSentences(polished);
-    t._el.dataset.refined = '1'; // ✨ 標記（CSS）
+  if (t._elDst) {
+    t._elDst.querySelector('.txt').textContent = breakSentences(polished);
+    t._elDst.classList.add('refined'); // 綠色虛線＋✨（可在設定關閉標示）
   }
   const id = await rowIdPromise;
   if (id != null) store.updateTurn(id, { dst: polished, refined: true }); // 逐字稿同步為通順版
@@ -990,7 +1043,19 @@ function applyTheme() {
     ?.setAttribute('content', settings.theme === 'light' ? '#f4f6f9' : '#0e1116');
 }
 
+function switchSettingsTab(name) {
+  for (const b of document.querySelectorAll('.stab-btn')) {
+    const on = b.dataset.tab === name;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-selected', String(on));
+  }
+  for (const p of document.querySelectorAll('.stab')) {
+    p.classList.toggle('hidden', p.dataset.tab !== name);
+  }
+}
+
 function openSettings(firstRun = false) {
+  switchSettingsTab('api');
   $('#welcome').classList.toggle('hidden', !firstRun);
   $('#set-key').value = settings.apiKey;
   $('#set-key2').value = settings.apiKeyThem;
@@ -998,6 +1063,9 @@ function openSettings(firstRun = false) {
   $('#set-them-text').checked = settings.themTextOnly;
   $('#set-auto-disc').checked = settings.autoDisconnect;
   $('#set-refine').checked = settings.refineListen;
+  $('#set-refine-mark').checked = settings.refineMark !== false;
+  $('#set-listen-src').checked = settings.listenSrcPane !== false;
+  $('#set-listen-div').checked = settings.listenDividers !== false;
   $('#set-talk-mode').value = settings.talkMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
   $('#set-manual-play').checked = settings.manualPlay;
@@ -1024,6 +1092,9 @@ function syncVoiceParamLabels() {
 
 function bindSettings() {
   $('#gear').addEventListener('click', () => openSettings(false));
+  for (const btn of document.querySelectorAll('.stab-btn')) {
+    btn.addEventListener('click', () => switchSettingsTab(btn.dataset.tab));
+  }
   for (const id of ['set-voice-idle', 'set-voice-max', 'set-tail']) {
     $(`#${id}`).addEventListener('input', syncVoiceParamLabels);
   }
@@ -1039,6 +1110,9 @@ function bindSettings() {
       themTextOnly: $('#set-them-text').checked,
       autoDisconnect: $('#set-auto-disc').checked,
       refineListen: $('#set-refine').checked,
+      refineMark: $('#set-refine-mark').checked,
+      listenSrcPane: $('#set-listen-src').checked,
+      listenDividers: $('#set-listen-div').checked,
       talkMode: $('#set-talk-mode').value,
       voiceAfterRelease: $('#set-voice-after').checked,
       manualPlay: $('#set-manual-play').checked,
@@ -1052,6 +1126,7 @@ function bindSettings() {
     });
     document.documentElement.style.setProperty('--font-scale', settings.fontScale);
     applyTheme();
+    applyListenPrefs();
     updateTalkLabels();
     if (!settings.voiceAfterRelease) audio.endVoiceHold(); // 關閉功能時放出可能的暫存
     closeSessions();
@@ -1131,6 +1206,8 @@ function boot() {
   $('#ver').textContent = self.APP_VERSION || '?';
   document.documentElement.style.setProperty('--font-scale', settings.fontScale);
   applyTheme();
+  applyListenPrefs();
+  bindListenDivider();
   fillLangSelect();
   renderLangUI();
   bindHold($('#hold-me'), 'me');
