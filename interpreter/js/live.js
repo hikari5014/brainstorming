@@ -262,7 +262,8 @@ export class MockSession extends EventTarget {
     const typeOut = async (text, type) => {
       const step = Math.max(2, Math.ceil(text.length / 6));
       for (let i = 0; i < text.length; i += step) {
-        this.emit(type, { text: text.slice(i, i + step) });
+        // input-text 附語言代碼，模擬伺服器的語言偵測（聆聽模式標注用）
+        this.emit(type, { text: text.slice(i, i + step), languageCode: type === 'input-text' ? (this.tag === 'toMine' ? 'en-US' : 'zh-TW') : undefined });
         await new Promise((r) => setTimeout(r, 80));
       }
     };

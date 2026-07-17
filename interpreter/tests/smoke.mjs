@@ -161,12 +161,30 @@ try {
   check('進入聆聽畫面（正向單區）', true);
   await page.waitForFunction(() => document.querySelector('#listen-feed .listen-turn .dst')?.textContent.length > 0, null, { timeout: 20000 });
   check('聆聽模式：連續字幕出現', true);
+  // v17：語言偵測標注（mock 的 input-text 附 en-US）
+  await page.waitForSelector('.listen-turn .lang-chip:not(.hidden)', { timeout: 10000 });
+  check('偵測語言標注', (await page.locator('.listen-turn .lang-chip').first().textContent()).includes('英語'));
+  // v17：句子之間換行（「哈囉！」的驚嘆號後斷行）
+  await page.waitForFunction(
+    () => [...document.querySelectorAll('#listen-feed .dst')].some((el) => el.textContent.includes('\n')),
+    null, { timeout: 15000 }
+  );
+  check('句子之間自動換行', true);
+  // v17：AI 潤飾完成 → ✨ 標記（demo 模擬 400ms 後完成）
+  await page.waitForFunction(
+    () => [...document.querySelectorAll('#listen-feed .listen-turn')].some((el) => el.dataset.refined === '1'),
+    null, { timeout: 15000 }
+  );
+  check('AI 潤飾原地替換（✨）', true);
   await page.click('#listen-toggle');
   check('點按暫停聆聽', (await page.locator('#listen-state').textContent()) === '已暫停');
   await page.click('#listen-end');
   await page.waitForSelector('#transcript[open]', { timeout: 5000 });
   await page.click('#tr-close');
   check('聆聽結束 → 逐字稿', true);
+  await page.click('#gear');
+  check('AI 潤飾設定存在', await page.locator('#set-refine').isVisible());
+  await page.click('#settings-close');
 
   /* ---- 語音完整偵測參數可調 ---- */
   await page.click('#gear');

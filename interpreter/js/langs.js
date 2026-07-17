@@ -32,3 +32,18 @@ const byCode = new Map(FOREIGN_LANGS.map((l) => [l.code, l]));
 export function langOf(code) {
   return byCode.get(code) || FOREIGN_LANGS[0];
 }
+
+// 語言代碼 → 顯示名稱（聆聽模式的語言偵測標注用；涵蓋 10 外語以外的常見語言）
+const EXTRA_LANGS = {
+  de: '德語', pt: '葡萄牙語', ru: '俄語', ar: '阿拉伯語', hi: '印地語',
+  it: '義大利語', nl: '荷蘭語', tr: '土耳其語', pl: '波蘭語', uk: '烏克蘭語',
+};
+
+export function langNameOf(code) {
+  const c = (code || '').split('-')[0].toLowerCase();
+  if (!c) return '';
+  if (c === 'zh' || c === 'cmn' || c === 'yue') return '中文';
+  const l = byCode.get(c);
+  if (l) return `${l.flag} ${l.name}`;
+  return EXTRA_LANGS[c] || c.toUpperCase();
+}

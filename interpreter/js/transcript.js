@@ -28,11 +28,25 @@ export class TranscriptStore {
     this.dbp = openDb().catch(() => null);
   }
 
-  // turn: {ts, mode, side, srcLang, dstLang, src, dst}
+  // turn: {ts, mode, side, srcLang, dstLang, src, dst, ...}；回傳新列 id（AI 潤飾後回頭更新用）
   async add(turn) {
     const db = await this.dbp;
-    if (!db) return;
-    db.transaction(STORE, 'readwrite').objectStore(STORE).add(turn);
+    if (!db) return null;
+    return new Promise((resolve) => {
+      const req = db.transaction(STORE, 'readwrite').objectStore(STORE).add(turn);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async updateTurn(id, patch) {
+    const db = await this.dbp;
+    if (!db || id == null) return;
+    const os = db.transaction(STORE, 'readwrite').objectStore(STORE);
+    const req = os.get(id);
+    req.onsuccess = () => {
+      if (req.result) os.put({ ...req.result, ...patch });
+    };
   }
 
   async all() {

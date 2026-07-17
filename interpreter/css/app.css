@@ -216,8 +216,17 @@ body[data-manual="on"] #pending-strip { height: 3.2rem; }
 .listen-head { padding: calc(env(safe-area-inset-top) + 0.7rem) 1.1rem 0.7rem; gap: 0.6rem; border-bottom: 1px solid var(--line); }
 .listen-head .live { flex: 1; justify-content: flex-end; }
 #listen-feed { flex: 1; min-height: 0; overflow-y: auto; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; }
-.listen-turn .dst { font-size: calc(1.3rem * var(--font-scale)); }
-.listen-turn .src { display: block; margin-top: 0.15rem; }
+.listen-turn .dst { font-size: calc(1.3rem * var(--font-scale)); white-space: pre-line; }
+.listen-turn .src { display: block; margin-top: 0.15rem; white-space: pre-line; }
+/* 語言偵測標注：講者語言改變時掛 chip */
+.listen-turn .lang-chip {
+  display: inline-block; margin-bottom: 0.3rem;
+  padding: 0.15rem 0.6rem; border-radius: 999px;
+  border: 1px solid var(--accent); color: var(--accent);
+  font-size: 0.72rem; font-weight: 700;
+}
+/* AI 潤飾完成：句尾亮 ✨ */
+.listen-turn[data-refined="1"] .dst::after { content: " ✨"; font-size: 0.8em; opacity: 0.75; }
 #view-listen .wave { margin: 0.3rem 0; }
 #listen-bar { padding: 0.6rem 1.2rem 1rem; }
 #listen-toggle {

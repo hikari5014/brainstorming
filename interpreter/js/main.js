@@ -5,7 +5,7 @@
 //   - 對話模式聲音只在「按住」時送出；聆聽模式為連續送出的單連線
 //   - 單一 AudioContext（audio.js）、實體按壓與非同步啟動解耦、window 級 catch-all
 
-import { MY_LANG, langOf, FOREIGN_LANGS } from './langs.js';
+import { MY_LANG, langOf, langNameOf, FOREIGN_LANGS } from './langs.js';
 import { loadSettings, saveSettings } from './settings.js';
 import { LiveSession, MockSession } from './live.js';
 import { AudioEngine } from './audio.js';
@@ -28,6 +28,8 @@ const state = {
   manualWait: null, // 手動開播模式：放開後等使用者按「▶ 播放」的 tag
   replay: { chunks: [], secs: 0 }, // 上一句外語翻譯語音的本機留存（對方沒聽清楚可重播）
   lastSavable: null, // 最後一輪完成的內容 {side, src, dst, lang}（☆ 收藏用）
+  listenPrevLang: '', // 聆聽模式：前一輪偵測到的語言（變化才標注）
+  refineCtx: [], // 聆聽 AI 潤飾的上下文（最近幾句潤飾後的譯文）
   lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
@@ -100,7 +102,9 @@ function finalizeTurn(tag) {
       lang: settings.foreignLang,
       pcm, secs,
     };
-    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, langCode: t.langCode, src: t.src.trim(), dst: t.dst.trim(), pcm, secs });
+    const rowIdPromise = store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, langCode: t.langCode, src: t.src.trim(), dst: t.dst.trim(), pcm, secs });
+    // 聆聽模式：句子完成 → 背景 AI 潤飾（即時粗譯已顯示，完成後原地替換）
+    if (t.mode === 'listen' && settings.refineListen && t.dst.trim()) refineTurn(t, rowIdPromise);
   }
   state.turns[tag] = null;
 }
@@ -112,10 +116,12 @@ function finalizeAllTurns() {
 
 /* ---------- 顯示路由 ---------- */
 // toForeign（我說）→ 上半（對方讀）；toMine（對方說/聆聽）→ 下半或聆聽 feed
-function routeText(tag, kind, text) {
+function routeText(tag, kind, text, langCode) {
   state.lastActivity = Date.now();
   const t = state.turns[tag] || (beginTurn(tag), state.turns[tag]);
   t[kind === 'input' ? 'src' : 'dst'] += text;
+  // 語言偵測：伺服器在 inputTranscription 附上的語言代碼（聆聽模式標注用）
+  if (kind === 'input' && langCode) t.srcCode = langCode.split('-')[0].toLowerCase();
 
   // 文字還在增長 → 翻譯尚未完整，語音繼續等
   if (state.awaitVoice?.tag === tag) state.awaitVoice.lastTextAt = Date.now();
@@ -148,7 +154,7 @@ function makeSession(tag) {
     renderLive();
     if (e.detail.state === 'open') flushPending(tag);
   });
-  session.addEventListener('input-text', (e) => routeText(tag, 'input', e.detail.text));
+  session.addEventListener('input-text', (e) => routeText(tag, 'input', e.detail.text, e.detail.languageCode));
   session.addEventListener('output-text', (e) => routeText(tag, 'output', e.detail.text));
   session.addEventListener('audio', (e) => {
     // 純文字模式的保險：就算伺服器仍送語音（TEXT 被降級），也直接捨棄不播
@@ -276,6 +282,8 @@ async function startSession(mode) {
   ensureSessions(mode === 'call' ? ['toForeign', 'toMine'] : ['toMine']);
   if (mode === 'listen') {
     $('#listen-feed').innerHTML = '';
+    state.listenPrevLang = '';
+    state.refineCtx = [];
     setListening(true); // 進入即開始聆聽，可點按暫停
   }
   acquireWakeLock();
@@ -767,19 +775,84 @@ function setListening(on, skipUi = false) {
   if (!on) clearWaves();
 }
 
+// 句子之間換行：句末標點後斷行（中文標點必斷；西文句點需接空白＋大寫才斷，避開小數點）
+function breakSentences(text) {
+  return (text || '')
+    .replace(/([。！？；…]+)\s*/g, '$1\n')
+    .replace(/([.!?])\s+(?=[A-ZÀ-Ý])/g, '$1\n')
+    .replace(/\n+$/, '');
+}
+
 function renderListenTurn(turn) {
   let el = turn._el;
   if (!el) {
     el = document.createElement('div');
     el.className = 'listen-turn';
-    el.innerHTML = '<div class="dst"></div><div class="src"></div>';
+    el.innerHTML = '<span class="lang-chip hidden"></span><div class="dst"></div><div class="src"></div>';
     $('#listen-feed').appendChild(el);
     while ($('#listen-feed').children.length > 80) $('#listen-feed').firstChild.remove();
     turn._el = el;
   }
-  el.querySelector('.dst').textContent = turn.dst;
-  el.querySelector('.src').textContent = turn.src;
+  // 語言偵測標注：講者語言改變時掛上 chip（例：演講中突然切成英語）
+  if (turn.srcCode && !turn._langTagged && turn.srcCode !== state.listenPrevLang) {
+    turn._langTagged = true;
+    state.listenPrevLang = turn.srcCode;
+    const chip = el.querySelector('.lang-chip');
+    chip.textContent = `🌐 ${langNameOf(turn.srcCode)}`;
+    chip.classList.remove('hidden');
+  }
+  el.querySelector('.dst').textContent = breakSentences(turn.dst);
+  el.querySelector('.src').textContent = breakSentences(turn.src);
   $('#listen-feed').scrollTop = $('#listen-feed').scrollHeight;
+}
+
+/* ---------- 聆聽字幕 AI 潤飾：即時粗譯先上，句子完成後依上下文改寫、原地替換 ---------- */
+
+async function requestRefine(src, rough, ctx) {
+  if (useMock()) { // Demo：模擬 400ms 後完成潤飾（回傳原文，僅驗證管線）
+    await new Promise((r) => setTimeout(r, 400));
+    return rough;
+  }
+  const key = settings.apiKey.trim();
+  if (!key) return null;
+  const prompt = '你是同步口譯的後編輯。以下是演講的連續片段，請把「本句粗譯」依上下文改寫成通順自然的繁體中文，'
+    + '保持原意、不增刪資訊、不加註解，只輸出改寫後的句子。\n\n'
+    + `前文（已潤飾）：${ctx.join('') || '（無）'}\n`
+    + `本句原文：${src || '（無）'}\n`
+    + `本句粗譯：${rough}`;
+  for (const model of ['gemini-2.5-flash-lite', 'gemini-2.5-flash']) {
+    try {
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+        }),
+      });
+      if (!r.ok) continue; // 換備援模型
+      const j = await r.json();
+      const out = j.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('').trim();
+      if (out) return out;
+    } catch { /* 網路失敗 → 保留粗譯 */ }
+  }
+  return null;
+}
+
+async function refineTurn(t, rowIdPromise) {
+  const rough = t.dst.trim();
+  if (!rough) return;
+  const polished = await requestRefine(t.src.trim(), rough, state.refineCtx.slice(-3));
+  if (!polished) return; // 潤飾失敗 → 粗譯原樣保留
+  state.refineCtx.push(polished);
+  if (state.refineCtx.length > 6) state.refineCtx.shift();
+  t.dst = polished;
+  if (t._el) {
+    t._el.querySelector('.dst').textContent = breakSentences(polished);
+    t._el.dataset.refined = '1'; // ✨ 標記（CSS）
+  }
+  const id = await rowIdPromise;
+  if (id != null) store.updateTurn(id, { dst: polished, refined: true }); // 逐字稿同步為通順版
 }
 
 /* ---------- 逐字稿檢視 ---------- */
@@ -924,6 +997,7 @@ function openSettings(firstRun = false) {
   $('#set-demo').checked = settings.demoMode;
   $('#set-them-text').checked = settings.themTextOnly;
   $('#set-auto-disc').checked = settings.autoDisconnect;
+  $('#set-refine').checked = settings.refineListen;
   $('#set-talk-mode').value = settings.talkMode;
   $('#set-voice-after').checked = settings.voiceAfterRelease;
   $('#set-manual-play').checked = settings.manualPlay;
@@ -964,6 +1038,7 @@ function bindSettings() {
       demoMode: $('#set-demo').checked,
       themTextOnly: $('#set-them-text').checked,
       autoDisconnect: $('#set-auto-disc').checked,
+      refineListen: $('#set-refine').checked,
       talkMode: $('#set-talk-mode').value,
       voiceAfterRelease: $('#set-voice-after').checked,
       manualPlay: $('#set-manual-play').checked,
