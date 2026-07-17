@@ -239,7 +239,12 @@ dialog h3 { margin: 1.1rem 0 0.4rem; font-size: 0.8rem; color: var(--dim); lette
 dialog a { color: var(--accent); }
 
 #tr-list { display: flex; flex-direction: column; gap: 0.8rem; max-height: 50dvh; overflow-y: auto; }
-.tr-turn { border-left: 2px solid var(--line); padding-left: 0.7rem; }
+.tr-turn { border-left: 2px solid var(--line); padding-left: 0.7rem; position: relative; padding-right: 2.6rem; }
+.tr-star {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 50%; padding: 0;
+  border: none; background: transparent; color: var(--accent); font-size: 1.15rem;
+}
 .tr-turn.me { border-left-color: var(--accent); }
 .tr-meta { font-size: 0.7rem; color: var(--dim); margin-bottom: 0.15rem; }
 .tr-src { font-size: 0.85rem; color: var(--dim); line-height: 1.5; }

@@ -71,6 +71,7 @@ function beginTurn(tag) {
     side: tag === 'toForeign' ? 'me' : 'them',
     srcLang: tag === 'toForeign' ? '中文' : foreign().name,
     dstLang: tag === 'toForeign' ? foreign().name : '中文',
+    langCode: foreign().code, // 逐字稿 → 常用句 轉存時的語言歸類
     src: '', dst: '', saved: false,
   };
 }
@@ -88,7 +89,7 @@ function finalizeTurn(tag) {
       fx: (t.side === 'me' ? t.dst : t.src).trim(),
       lang: settings.foreignLang,
     };
-    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, src: t.src.trim(), dst: t.dst.trim() });
+    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, langCode: t.langCode, src: t.src.trim(), dst: t.dst.trim() });
   }
   state.turns[tag] = null;
 }
@@ -608,6 +609,29 @@ function playPhrase(p) {
   store.updatePhrase(p.id, { uses: (p.uses || 0) + 1, lastUsed: Date.now() });
 }
 
+// 逐字稿 → 常用句：任何一句都能事後轉存（逐字稿沒有留語音 → 純文字句）
+async function savePhraseFromTurn(t, btn) {
+  const zh = ((t.side === 'me' ? t.src : t.dst) || '').trim();
+  const fx = ((t.side === 'me' ? t.dst : t.src) || '').trim();
+  if (!zh && !fx) { toast('這句沒有內容。'); return; }
+  const lang = t.langCode
+    || FOREIGN_LANGS.find((l) => l.name === (t.side === 'me' ? t.dstLang : t.srcLang))?.code
+    || settings.foreignLang;
+  const all = await store.allPhrases();
+  if (all.some((p) => p.lang === lang && p.src === zh && p.dst === fx)) {
+    btn.textContent = '★';
+    toast('這句已在常用句中。');
+    return;
+  }
+  await store.addPhrase({
+    ts: Date.now(), lang, src: zh, dst: fx,
+    pcm: null, secs: 0, uses: 0, lastUsed: 0, pinned: false,
+  });
+  btn.textContent = '★';
+  btn.setAttribute('aria-label', '已收藏');
+  toast('⭐ 已轉存到常用句（僅文字）。');
+}
+
 async function renderPhrasebook() {
   const all = await store.allPhrases();
   const showAll = $('#pb-all').checked;
@@ -749,6 +773,13 @@ async function openTranscript() {
     div.querySelector('.tr-meta').textContent = `${time} · ${t.side === 'me' ? `中文 → ${t.dstLang}` : `${t.srcLang} → 中文`}`;
     div.querySelector('.tr-src').textContent = t.src;
     div.querySelector('.tr-dst').textContent = t.dst;
+    // 每句都可轉存到常用句
+    const star = document.createElement('button');
+    star.className = 'tr-star';
+    star.setAttribute('aria-label', '收藏為常用句');
+    star.textContent = '☆';
+    star.addEventListener('click', () => savePhraseFromTurn(t, star));
+    div.appendChild(star);
     list.appendChild(div);
   }
   $('#transcript').showModal();

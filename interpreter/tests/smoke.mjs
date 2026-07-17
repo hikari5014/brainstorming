@@ -452,6 +452,31 @@ try {
   await page.waitForTimeout(800);
   if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
 
+  /* ---- v15：逐字稿 → 常用句轉存 ---- */
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  await hold('#hold-me', 1500);
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  await page.click('#end-call');
+  await page.waitForSelector('#transcript[open]', { timeout: 5000 });
+  check('逐字稿每句有收藏鈕', (await page.locator('.tr-star').count()) >= 1);
+  const pbBefore = await page.evaluate(async () => (await window.__kouyiji.store.allPhrases()).length);
+  await page.locator('.tr-star').first().click();
+  await page.waitForTimeout(400);
+  const pbAfter = await page.evaluate(async () => {
+    const all = await window.__kouyiji.store.allPhrases();
+    const p = all[all.length - 1];
+    return { n: all.length, textOnly: p ? !p.pcm : null, hasLang: p ? Boolean(p.lang) : null };
+  });
+  check('逐字稿句子轉存成功（純文字＋語言歸類）',
+    pbAfter.n === pbBefore + 1 && pbAfter.textOnly === true && pbAfter.hasLang === true, JSON.stringify(pbAfter));
+  check('轉存後星號變實心', (await page.locator('.tr-star').first().textContent()) === '★');
+  await page.locator('.tr-star').first().click(); // 再點一次 → 重複偵測
+  await page.waitForTimeout(400);
+  const pbDup = await page.evaluate(async () => (await window.__kouyiji.store.allPhrases()).length);
+  check('重複轉存防護', pbDup === pbAfter.n, `count ${pbDup}`);
+  await page.click('#tr-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();
