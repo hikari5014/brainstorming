@@ -267,7 +267,23 @@ try {
 
   /* ---- PWA ---- */
   const manifest = await (await page.request.get(base + 'manifest.webmanifest')).json();
-  check('manifest 含 3 個圖示', manifest.icons.length === 3);
+  check('manifest 圖示齊全（含 512）', manifest.icons.length >= 4 && manifest.icons.some((i) => i.sizes === '512x512'));
+  // v19：icon 完整性（曾發生 PNG 下半截空白 → 主畫面圖示破圖）
+  const iconOk = await page.evaluate(async () => {
+    const href = document.querySelector('link[rel="apple-touch-icon"]').href;
+    const img = await createImageBitmap(await (await fetch(href)).blob());
+    const cv = new OffscreenCanvas(img.width, img.height);
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0);
+    // 抽查下半部多個點：不得是純白或透明
+    const bad = [];
+    for (const [fx, fy] of [[0.5, 0.85], [0.2, 0.95], [0.8, 0.9], [0.5, 0.6]]) {
+      const [r, g, b, a] = cx.getImageData(Math.floor(img.width * fx), Math.floor(img.height * fy), 1, 1).data;
+      if (a < 250 || (r > 240 && g > 240 && b > 240)) bad.push(`${fx},${fy}=${r},${g},${b},${a}`);
+    }
+    return { size: img.width, bad };
+  });
+  check('主畫面圖示完整（下半部無空白）', iconOk.size === 180 && iconOk.bad.length === 0, JSON.stringify(iconOk));
   const sw = await page.evaluate(async () => Boolean(await navigator.serviceWorker.getRegistration()));
   check('service worker 註冊', sw);
   const swVer = await (await page.request.get(base + 'js/version.js')).text();
