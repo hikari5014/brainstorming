@@ -460,18 +460,29 @@ try {
   await page.click('#end-call');
   await page.waitForSelector('#transcript[open]', { timeout: 5000 });
   check('逐字稿每句有收藏鈕', (await page.locator('.tr-star').count()) >= 1);
+  // v16：我方回合的外語語音跟著逐字稿保存
+  const trVoice = await page.evaluate(async () => {
+    const turns = await window.__kouyiji.store.all();
+    const me = turns.filter((t) => t.side === 'me' && t.pcm);
+    return { meWithVoice: me.length, lastSecs: me.length ? me[me.length - 1].secs : 0 };
+  });
+  check('逐字稿隨附外語語音（我方回合）', trVoice.meWithVoice >= 1 && trVoice.lastSecs > 0, JSON.stringify(trVoice));
   const pbBefore = await page.evaluate(async () => (await window.__kouyiji.store.allPhrases()).length);
-  await page.locator('.tr-star').first().click();
+  await page.evaluate(() => {
+    // 點最後一列（最新的我方回合，v16 起帶語音）
+    const stars = document.querySelectorAll('.tr-star');
+    stars[stars.length - 1].click();
+  });
   await page.waitForTimeout(400);
   const pbAfter = await page.evaluate(async () => {
     const all = await window.__kouyiji.store.allPhrases();
     const p = all[all.length - 1];
-    return { n: all.length, textOnly: p ? !p.pcm : null, hasLang: p ? Boolean(p.lang) : null };
+    return { n: all.length, hasPcm: p ? Boolean(p.pcm) : null, hasLang: p ? Boolean(p.lang) : null };
   });
-  check('逐字稿句子轉存成功（純文字＋語言歸類）',
-    pbAfter.n === pbBefore + 1 && pbAfter.textOnly === true && pbAfter.hasLang === true, JSON.stringify(pbAfter));
-  check('轉存後星號變實心', (await page.locator('.tr-star').first().textContent()) === '★');
-  await page.locator('.tr-star').first().click(); // 再點一次 → 重複偵測
+  check('逐字稿句子轉存成功（含語音＋語言歸類）',
+    pbAfter.n === pbBefore + 1 && pbAfter.hasPcm === true && pbAfter.hasLang === true, JSON.stringify(pbAfter));
+  check('轉存後星號變實心', (await page.locator('.tr-star').last().textContent()) === '★');
+  await page.locator('.tr-star').last().click(); // 再點一次 → 重複偵測
   await page.waitForTimeout(400);
   const pbDup = await page.evaluate(async () => (await window.__kouyiji.store.allPhrases()).length);
   check('重複轉存防護', pbDup === pbAfter.n, `count ${pbDup}`);

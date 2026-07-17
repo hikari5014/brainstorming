@@ -82,14 +82,25 @@ function finalizeTurn(tag) {
   if (t.src.trim() || t.dst.trim()) {
     t.saved = true;
     state.callHadTurns = true;
+    // 我方回合：把外語語音（裁靜音、上限 30 秒）跟著逐字稿一起存 →
+    // 之後隨時（甚至隔天）從逐字稿轉存常用句都帶得到語音
+    let pcm = null;
+    let secs = 0;
+    if (t.side === 'me' && state.replay.secs > 0) {
+      const trimmed = trimSilence(state.replay.chunks);
+      const capped = trimmed.subarray(0, Math.min(trimmed.length, 30 * 24000));
+      pcm = capped.slice().buffer;
+      secs = capped.length / 24000;
+    }
     // 常用句 ☆ 收藏的對象：一律以「中文 / 外語」正規化存放
     state.lastSavable = {
       side: t.side,
       zh: (t.side === 'me' ? t.src : t.dst).trim(),
       fx: (t.side === 'me' ? t.dst : t.src).trim(),
       lang: settings.foreignLang,
+      pcm, secs,
     };
-    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, langCode: t.langCode, src: t.src.trim(), dst: t.dst.trim() });
+    store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, langCode: t.langCode, src: t.src.trim(), dst: t.dst.trim(), pcm, secs });
   }
   state.turns[tag] = null;
 }
@@ -274,11 +285,11 @@ async function startSession(mode) {
 async function endSession(silent = false) {
   cancelAwaitVoice();
   cancelManualWait();
-  state.replay = { chunks: [], secs: 0 };
-  updateReplayBtn();
   releaseHold();
   setListening(false);
-  finalizeAllTurns();
+  finalizeAllTurns(); // 先入帳（最後一輪的語音要寫進逐字稿），再清重播緩衝
+  state.replay = { chunks: [], secs: 0 };
+  updateReplayBtn();
   hidePendingDots();
   closeSessions();
   await audio.close(); // 通話隱喻：結束就關麥克風，iOS 錄音指示燈熄滅
@@ -313,9 +324,9 @@ async function beginHold(side, btn) {
   btn.classList.add('holding');
   document.body.dataset.holding = side;
   hidePendingDots();
+  beginTurn(side === 'me' ? 'toForeign' : 'toMine'); // 先 finalize 上一輪（語音會一併寫入逐字稿）
   if (side === 'me') { state.replay = { chunks: [], secs: 0 }; } // 新的一句開始 → 舊語音作廢
   updateReplayBtn();
-  beginTurn(side === 'me' ? 'toForeign' : 'toMine');
   vlogBegin({
     tag: side === 'me' ? 'toForeign' : 'toMine',
     dir: side === 'me' ? `我 → ${foreign().native}` : `${foreign().native} → 我`,
@@ -377,6 +388,7 @@ function manualPlayNow() {
   hidePendingDots();
   vlogMark('voice-start', { reason: 'manual' });
   audio.endVoiceHold(); // 使用者判定完整 → 從本機暫存播出
+  finalizeTurn(tag); // 使用者已判定完整 → 回合入帳（☆ 收藏才拿得到這一輪與語音）
   watchPlaybackThenRecycle(tag);
 }
 
@@ -418,7 +430,12 @@ function releaseVoiceNow(reason = 'idle') {
   hidePendingDots();
   vlogMark('voice-start', { reason });
   audio.endVoiceHold(); // 此刻整段語音已完整在本地 → 播放不再依賴網路，不會斷斷續續
-  if (tag) watchPlaybackThenRecycle(tag);
+  if (tag) {
+    // 靜音偵測收尾（伺服器沒送 turn-complete）也要把回合入帳，
+    // 否則 ☆ 收藏會存到舊的一輪、語音也對不上（v15 使用者實測踩到的洞）
+    finalizeTurn(tag);
+    watchPlaybackThenRecycle(tag);
+  }
 }
 
 // 語音播完後把該輪用過的連線換成全新的（趁空檔，下一輪按下時已就緒）
@@ -553,12 +570,13 @@ function replayLast() {
 async function savePhraseLast() {
   const t = state.lastSavable;
   if (!t || (!t.zh && !t.fx)) { toast('還沒有可收藏的句子。'); return; }
-  let pcm = null;
-  let secs = 0;
-  // 我說的句子：把重播緩衝（已裁靜音）一併存下 → 之後點擊立刻播外語語音
-  if (t.side === 'me' && state.replay.secs > 0) {
+  // 語音在回合入帳時就跟著存好（finalizeTurn）→ 收藏時直接取用，時機永遠對得上
+  let pcm = t.pcm || null;
+  let secs = t.secs || 0;
+  if (!pcm && t.side === 'me' && state.replay.secs > 0) {
+    // 後備：極端情況（回合尚未入帳）改抓重播緩衝
     const trimmed = trimSilence(state.replay.chunks);
-    const capped = trimmed.subarray(0, Math.min(trimmed.length, 30 * 24000)); // 單句上限 30 秒
+    const capped = trimmed.subarray(0, Math.min(trimmed.length, 30 * 24000));
     pcm = capped.slice().buffer;
     secs = capped.length / 24000;
   }
@@ -609,7 +627,8 @@ function playPhrase(p) {
   store.updatePhrase(p.id, { uses: (p.uses || 0) + 1, lastUsed: Date.now() });
 }
 
-// 逐字稿 → 常用句：任何一句都能事後轉存（逐字稿沒有留語音 → 純文字句）
+// 逐字稿 → 常用句：任何一句都能事後轉存。
+// v16 起我方回合的外語語音跟著逐字稿保存 → 轉存也帶語音（對方回合仍為純文字）。
 async function savePhraseFromTurn(t, btn) {
   const zh = ((t.side === 'me' ? t.src : t.dst) || '').trim();
   const fx = ((t.side === 'me' ? t.dst : t.src) || '').trim();
@@ -618,18 +637,25 @@ async function savePhraseFromTurn(t, btn) {
     || FOREIGN_LANGS.find((l) => l.name === (t.side === 'me' ? t.dstLang : t.srcLang))?.code
     || settings.foreignLang;
   const all = await store.allPhrases();
-  if (all.some((p) => p.lang === lang && p.src === zh && p.dst === fx)) {
+  const existing = all.find((p) => p.lang === lang && p.src === zh && p.dst === fx);
+  if (existing) {
     btn.textContent = '★';
-    toast('這句已在常用句中。');
+    if (!existing.pcm && t.pcm) {
+      // 之前存過純文字版 → 補上語音升級
+      await store.updatePhrase(existing.id, { pcm: t.pcm, secs: t.secs || 0 });
+      toast('⭐ 已為既有收藏補上語音。');
+    } else {
+      toast('這句已在常用句中。');
+    }
     return;
   }
   await store.addPhrase({
     ts: Date.now(), lang, src: zh, dst: fx,
-    pcm: null, secs: 0, uses: 0, lastUsed: 0, pinned: false,
+    pcm: t.pcm || null, secs: t.secs || 0, uses: 0, lastUsed: 0, pinned: false,
   });
   btn.textContent = '★';
   btn.setAttribute('aria-label', '已收藏');
-  toast('⭐ 已轉存到常用句（僅文字）。');
+  toast(t.pcm ? '⭐ 已轉存到常用句（含語音）。' : '⭐ 已轉存到常用句（僅文字）。');
 }
 
 async function renderPhrasebook() {
