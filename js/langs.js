@@ -1,0 +1,49 @@
+// 台灣人最常用的 10 種外語（BCP-47，皆為 gemini-3.5-live-translate 支援的目標語言）
+// 使用者端固定為中文（繁體）zh-Hant。
+
+export const MY_LANG = 'zh-Hant';
+
+// ui.*：顯示給「該語言讀者」看的介面文字（規格：標籤語言對應讀者的語言）
+export const FOREIGN_LANGS = [
+  { code: 'en',  name: '英語',    native: 'English',    flag: '🇺🇸',
+    ui: { hold: 'Hold to speak', original: 'Original', live: 'Interpreting', tap: 'Tap to speak', stop: 'Tap to stop', replay: 'Replay' } },
+  { code: 'ja',  name: '日語',    native: '日本語',      flag: '🇯🇵',
+    ui: { hold: '押しながら話す', original: '原文', live: '通訳中', tap: 'タップで話す', stop: 'タップで終了', replay: 'もう一度再生' } },
+  { code: 'ko',  name: '韓語',    native: '한국어',      flag: '🇰🇷',
+    ui: { hold: '누른 채 말하기', original: '원문', live: '통역 중', tap: '탭하여 말하기', stop: '탭하여 종료', replay: '다시 듣기' } },
+  { code: 'vi',  name: '越南語',  native: 'Tiếng Việt', flag: '🇻🇳',
+    ui: { hold: 'Giữ để nói', original: 'Bản gốc', live: 'Đang phiên dịch', tap: 'Chạm để nói', stop: 'Chạm để dừng', replay: 'Nghe lại' } },
+  { code: 'th',  name: '泰語',    native: 'ไทย',        flag: '🇹🇭',
+    ui: { hold: 'กดค้างเพื่อพูด', original: 'ต้นฉบับ', live: 'กำลังแปล', tap: 'แตะเพื่อพูด', stop: 'แตะเพื่อหยุด', replay: 'ฟังอีกครั้ง' } },
+  { code: 'id',  name: '印尼語',  native: 'Indonesia',  flag: '🇮🇩',
+    ui: { hold: 'Tahan untuk bicara', original: 'Asli', live: 'Menerjemahkan', tap: 'Ketuk untuk bicara', stop: 'Ketuk untuk berhenti', replay: 'Putar ulang' } },
+  { code: 'fil', name: '菲律賓語', native: 'Filipino',   flag: '🇵🇭',
+    ui: { hold: 'Pindutin para magsalita', original: 'Orihinal', live: 'Nagsasalin', tap: 'I-tap para magsalita', stop: 'I-tap para huminto', replay: 'Ulitin' } },
+  { code: 'ms',  name: '馬來語',  native: 'Melayu',     flag: '🇲🇾',
+    ui: { hold: 'Tahan untuk bercakap', original: 'Asal', live: 'Mentafsir', tap: 'Ketik untuk bercakap', stop: 'Ketik untuk berhenti', replay: 'Main semula' } },
+  { code: 'es',  name: '西班牙語', native: 'Español',    flag: '🇪🇸',
+    ui: { hold: 'Mantén para hablar', original: 'Original', live: 'Interpretando', tap: 'Toca para hablar', stop: 'Toca para detener', replay: 'Repetir' } },
+  { code: 'fr',  name: '法語',    native: 'Français',   flag: '🇫🇷',
+    ui: { hold: 'Maintenir pour parler', original: 'Original', live: 'Interprétation', tap: 'Appuyer pour parler', stop: 'Appuyer pour arrêter', replay: 'Réécouter' } },
+];
+
+const byCode = new Map(FOREIGN_LANGS.map((l) => [l.code, l]));
+
+export function langOf(code) {
+  return byCode.get(code) || FOREIGN_LANGS[0];
+}
+
+// 語言代碼 → 顯示名稱（聆聽模式的語言偵測標注用；涵蓋 10 外語以外的常見語言）
+const EXTRA_LANGS = {
+  de: '德語', pt: '葡萄牙語', ru: '俄語', ar: '阿拉伯語', hi: '印地語',
+  it: '義大利語', nl: '荷蘭語', tr: '土耳其語', pl: '波蘭語', uk: '烏克蘭語',
+};
+
+export function langNameOf(code) {
+  const c = (code || '').split('-')[0].toLowerCase();
+  if (!c) return '';
+  if (c === 'zh' || c === 'cmn' || c === 'yue') return '中文';
+  const l = byCode.get(c);
+  if (l) return `${l.flag} ${l.name}`;
+  return EXTRA_LANGS[c] || c.toUpperCase();
+}

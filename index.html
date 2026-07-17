@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1116" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="口譯機" />
+  <meta name="description" content="口譯機：面對面雙向即時口譯（Gemini Live）。按住說話、放開翻譯。" />
+  <title>口譯機</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="./icons/icon-192.png" sizes="192x192" />
+  <!-- iOS 主畫面圖示：標準 180×180、不透明滿版（透明會被補成白色） -->
+  <link rel="apple-touch-icon" sizes="180x180" href="./icons/icon-180.png" />
+  <link rel="stylesheet" href="./css/app.css" />
+</head>
+<body data-phase="home">
+
+  <script src="./js/version.js"></script>
+
+  <!-- SVG outline 圖示庫 -->
+  <svg style="display:none" aria-hidden="true">
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z M14 3v5h5 M10 12h6 M10 16h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-end" viewBox="0 0 24 24"><path d="M4 14c4.5-4 11.5-4 16 0l-2.5 3c-1-.6-2-1.4-2.5-2.4-2-.8-4-.8-6 0-.5 1-1.5 1.8-2.5 2.4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M6 4c-1 0-2 1-2 2 0 8 6 14 14 14 1 0 2-1 2-2v-2.5l-4-1.5-1.5 2C12 15 9.5 12.5 8.5 10l2-1.5L9 4.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3 M12 18.2v3 M2.8 12h3 M18.2 12h3 M5.5 5.5l2.1 2.1 M16.4 16.4l2.1 2.1 M18.5 5.5l-2.1 2.1 M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3 M20 16H7l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.33 4.02" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5.2 3.2v5.4h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.5 5.1 5.6 0.8-4 4 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-4 5.6-0.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z M4 20.5V5.5 M20 18v3H6.5A2.5 2.5 0 0 1 4 18.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 8h8 M8 11.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4 M8 8l4-4 4 4 M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11 M8 11l4 4 4-4 M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0 M12 17.5V21" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-ear" viewBox="0 0 24 24"><path d="M6 10a6 6 0 1 1 12 0c0 3-2.5 4-3.5 6-.7 1.4-1 3-3 3s-2.6-1.5-2.6-1.5 M9.5 10a2.5 2.5 0 1 1 5 0c0 1.6-1.4 2.2-2 3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- ============ 首頁（通話隱喻） ============ -->
+  <div id="view-home" class="view">
+    <header id="home-top">
+      <span class="brand">口譯機 <span id="ver"></span></span>
+      <button id="gear" class="icon-btn" aria-label="設定"><svg width="22" height="22"><use href="#i-gear"/></svg></button>
+    </header>
+
+    <div id="home-body">
+      <div id="mode-seg" role="tablist" aria-label="模式">
+        <button class="seg active" data-mode="call" role="tab" aria-selected="true">
+          <svg width="18" height="18"><use href="#i-mic"/></svg>面對面對話
+        </button>
+        <button class="seg" data-mode="listen" role="tab" aria-selected="false">
+          <svg width="18" height="18"><use href="#i-ear"/></svg>聆聽
+        </button>
+      </div>
+      <p id="mode-hint">兩人面對面：手機平放中間，各自按住自己那側說話</p>
+
+      <label id="home-lang" class="field">外語
+        <select id="foreign-lang" aria-label="選擇外語"></select>
+      </label>
+
+      <button id="start-btn" aria-label="開始">
+        <svg width="34" height="34"><use href="#i-phone"/></svg>
+        <span id="start-label">開始對話</span>
+      </button>
+      <p id="start-note">按下才會開啟麥克風與連線</p>
+      <button id="home-phrases" aria-label="常用句">
+        <svg width="18" height="18"><use href="#i-book"/></svg>常用句
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ 面對面對話 ============ -->
+  <div id="view-call" class="view hidden">
+    <!-- 上半：面向對方，旋轉 180° -->
+    <section class="side theirs" aria-label="對方區域">
+      <header class="side-head">
+        <span class="side-lang" id="theirs-lang">English</span>
+        <span class="live"><span class="live-dot"></span><span id="theirs-live">Interpreting</span></span>
+      </header>
+      <div class="side-content">
+        <!-- 重播鍵：圓形小圖示，釘在對方視角的字幕起點旁（沒聽清楚可自己按） -->
+        <button id="replay-them" class="replay-btn hidden" aria-label="Replay">
+          <svg width="22" height="22"><use href="#i-replay"/></svg>
+        </button>
+        <div class="dst" id="theirs-dst" aria-live="polite"></div>
+        <div class="src" id="theirs-src-row"><span class="src-label" id="theirs-src-label">Original</span><span id="theirs-src"></span></div>
+      </div>
+      <div class="wave" id="wave-them" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <button class="hold-btn" id="hold-them" aria-label="Hold to speak">
+        <svg width="22" height="22"><use href="#i-mic"/></svg>
+        <span id="hold-them-label">Hold to speak</span>
+      </button>
+    </section>
+
+    <!-- 中控列（不旋轉，兩人共用） -->
+    <div id="controlbar">
+      <button id="open-transcript" class="icon-btn" aria-label="逐字稿紀錄"><svg width="22" height="22"><use href="#i-doc"/></svg></button>
+      <button id="save-phrase" class="icon-btn" aria-label="收藏上一句"><svg width="22" height="22"><use href="#i-star"/></svg></button>
+      <button id="open-phrases" class="icon-btn" aria-label="常用句"><svg width="22" height="22"><use href="#i-book"/></svg></button>
+      <button id="pair" aria-label="語言設定">
+        <span>中文</span><svg width="16" height="16"><use href="#i-swap"/></svg><span id="pair-foreign">English</span>
+      </button>
+      <button id="end-call" class="icon-btn end" aria-label="結束通話"><svg width="22" height="22"><use href="#i-end"/></svg></button>
+    </div>
+    <!-- 翻譯中跳動點＋語音接收指示器：固定高度，避免版面跳動 -->
+    <div id="pending-strip" aria-live="polite">
+      <span id="pending-dots" class="hidden"><i></i><i></i><i></i><em>翻譯中</em></span>
+      <span id="voice-ind" class="hidden" data-state="wait" aria-hidden="true"></span>
+      <button id="manual-play" class="hidden" aria-label="播放翻譯語音">▶ 播放</button>
+    </div>
+
+    <!-- 下半：面向自己 -->
+    <section class="side mine" aria-label="我的區域">
+      <header class="side-head">
+        <span class="side-lang">中文</span>
+        <span class="live"><span class="live-dot"></span><span>口譯進行中</span></span>
+      </header>
+      <div class="side-content">
+        <div class="dst" id="mine-dst" aria-live="polite"></div>
+        <div class="src" id="mine-src-row"><span class="src-label">原文</span><span id="mine-src"></span></div>
+      </div>
+      <div class="wave" id="wave-me" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+      <button class="hold-btn" id="hold-me" aria-label="按住說話">
+        <svg width="22" height="22"><use href="#i-mic"/></svg>
+        <span id="hold-me-label">按住說話</span>
+      </button>
+    </section>
+  </div>
+
+  <!-- ============ 聆聽模式 ============ -->
+  <div id="view-listen" class="view hidden">
+    <header class="side-head listen-head">
+      <span class="side-lang" id="listen-lang">English → 中文</span>
+      <span class="live"><span class="live-dot"></span><span id="listen-state">未聆聽</span></span>
+      <button id="listen-end" class="icon-btn end" aria-label="結束聆聽"><svg width="22" height="22"><use href="#i-end"/></svg></button>
+    </header>
+    <!-- 上下雙視窗：上＝中文翻譯、下＝原文；中間分界可拖動調整比例 -->
+    <div id="listen-split">
+      <div id="listen-dst-pane" aria-live="polite"></div>
+      <div id="listen-divider" role="separator" aria-label="拖動調整上下視窗比例"><i></i></div>
+      <div id="listen-src-pane"></div>
+    </div>
+    <div class="wave" id="wave-listen" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div id="listen-bar">
+      <button id="listen-toggle" aria-label="開始聆聽">
+        <svg width="24" height="24"><use href="#i-ear"/></svg><span>開始聆聽</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ 逐字稿 ============ -->
+  <dialog id="transcript">
+    <h2>逐字稿</h2>
+    <div id="tr-list"></div>
+    <div class="dialog-actions">
+      <button id="tr-copy" aria-label="複製全部"><svg width="18" height="18"><use href="#i-copy"/></svg>複製</button>
+      <button id="tr-share" aria-label="分享"><svg width="18" height="18"><use href="#i-share"/></svg>分享</button>
+      <button id="tr-export" aria-label="匯出文字檔"><svg width="18" height="18"><use href="#i-download"/></svg>匯出</button>
+      <button id="tr-clear" class="danger" aria-label="清除全部">清除</button>
+      <button id="tr-close" class="primary">關閉</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 設定（分頁籤） ============ -->
+  <dialog id="settings">
+    <h2>設定</h2>
+    <div class="settings-tabs" role="tablist" aria-label="設定分類">
+      <button type="button" class="stab-btn active" data-tab="api" role="tab" aria-selected="true">API 設定</button>
+      <button type="button" class="stab-btn" data-tab="call" role="tab" aria-selected="false">對話翻譯</button>
+      <button type="button" class="stab-btn" data-tab="listen" role="tab" aria-selected="false">聆聽</button>
+    </div>
+
+    <!-- ===== API 設定 ===== -->
+    <div class="stab" data-tab="api">
+      <div id="welcome" class="welcome hidden">
+        <p><strong>歡迎使用口譯機 👋</strong></p>
+        <p>純前端 app：你的 Gemini API key 只存在這台裝置，直連 Google。
+          到 <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> 免費申請，或先試玩：</p>
+        <button id="demo-start" class="primary">先用 Demo 模式試玩（不需 key）</button>
+      </div>
+      <label class="field">Gemini API key
+        <input type="password" id="set-key" placeholder="AIza..." autocomplete="off" />
+        <small><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>（僅存本機）</small>
+      </label>
+      <label class="field">對方→中文 專用 API key（選填）
+        <input type="password" id="set-key2" placeholder="留空＝共用上面的 key" autocomplete="off" />
+        <small>兩個方向各用一把 key：免費額度加倍、互不搶限額（可用另一個 Google 帳號申請）</small>
+      </label>
+      <label class="field checkbox"><input type="checkbox" id="set-demo" /> Demo 模式（假引擎，不耗額度）</label>
+      <p id="usage-line" class="usage"></p>
+      <h3>疑難排解</h3>
+      <button id="run-diag">🩺 執行連線診斷</button>
+      <div id="diag-results" class="hidden"></div>
+      <button id="copy-diag" class="hidden">複製診斷結果</button>
+      <button id="open-voicelog">🎧 語音記錄（逐條分析斷音）</button>
+      <h3>一般</h3>
+      <label class="field">介面主題
+        <select id="set-theme" aria-label="介面主題">
+          <option value="dark">深色</option>
+          <option value="light">淺色</option>
+        </select>
+      </label>
+      <label class="field">字級
+        <input type="range" id="set-font" min="0.8" max="1.6" step="0.1" aria-label="字級" />
+      </label>
+      <label class="field">閒置幾分鐘自動結束省額度
+        <input type="number" id="set-idle" min="0" step="1" />
+      </label>
+    </div>
+
+    <!-- ===== 對話翻譯 ===== -->
+    <div class="stab hidden" data-tab="call">
+      <label class="field">說話按鈕操作方式
+        <select id="set-talk-mode" aria-label="說話按鈕操作方式">
+          <option value="hold">按住說話（放開即結束）</option>
+          <option value="toggle">點一下開始・再點一下結束</option>
+        </select>
+        <small>點擊式完全由你手動控制開始/結束，不做任何自動判斷</small>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-them-text" />
+        <span>對方說話只出中文字幕（不播中文語音）<small style="display:block">你看字幕比等語音快得多；不用等中文語音下載、額度省一半。你說的話仍會翻成外語語音播給對方聽。關閉＝雙向都有語音</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-auto-disc" />
+        <span>每輪結束自動斷線<small style="display:block">語音播完／字幕跑完就確實斷開連線省額度，下次按住說話時自動重連（開頭有緩衝，不會漏字）</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-voice-after" />
+        <span>等翻譯完整才播語音<small style="display:block">字幕即時顯示；放開按鈕後自動偵測翻譯文字完整，再一次播出完整語音（不重疊、不斷句）。關閉＝邊說邊播</small></span>
+      </label>
+      <div id="voice-params" class="subfields">
+        <label class="field checkbox">
+          <input type="checkbox" id="set-manual-play" />
+          <span>手動開播：放開後由我按「▶ 播放」<small style="display:block">完全不做自動判斷。放開錄音鈕後語音持續暫存，畫面出現播放鈕，搭配接收指示器自行決定開播時機</small></span>
+        </label>
+        <label class="field">完整判定：文字與語音都停止 <strong id="lbl-voice-idle"></strong> 秒後開播
+          <input type="range" id="set-voice-idle" min="0.5" max="3" step="0.1" aria-label="完整判定秒數" />
+          <small>字幕與語音資料都不再增加才開播（缺一不可）。調短＝更快開播但可能切到尾巴；調長＝更保險但等更久</small>
+        </label>
+        <label class="field">最長等待 <strong id="lbl-voice-max"></strong> 秒（保險絲，超過必定開播）
+          <input type="range" id="set-voice-max" min="3" max="30" step="1" aria-label="最長等待秒數" />
+        </label>
+        <label class="field">放開後補送靜音 <strong id="lbl-tail"></strong> 秒
+          <input type="range" id="set-tail" min="0.5" max="3" step="0.1" aria-label="補送靜音秒數" />
+          <small>幫伺服器把句子收尾；翻譯常出現半截時調長</small>
+        </label>
+      </div>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-voice-ind" />
+        <span>對話中顯示語音接收指示器<small style="display:block">即時顯示已收到幾條/幾秒翻譯語音、仍在下載還是已靜止——用來確認斷音是不是伺服器端造成，以及判斷開播時機</small></span>
+      </label>
+    </div>
+
+    <!-- ===== 聆聽 ===== -->
+    <div class="stab hidden" data-tab="listen">
+      <label class="field checkbox">
+        <input type="checkbox" id="set-refine" />
+        <span>字幕 AI 潤飾<small style="display:block">每句完成後依上下文自動改寫成通順中文並原地替換。即時粗譯照常先顯示；耗少量文字額度</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-refine-mark" />
+        <span>標示潤飾過的句子（綠色虛線）<small style="display:block">潤飾完成的句子加上綠色虛線底線＋✨，一眼看出哪些已重整</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-listen-src" />
+        <span>顯示原文視窗（下半）<small style="display:block">上＝中文翻譯、下＝原文，中間的分界可上下拖動調整比例。關閉＝翻譯全螢幕</small></span>
+      </label>
+      <label class="field checkbox">
+        <input type="checkbox" id="set-listen-div" />
+        <span>段落分隔線<small style="display:block">在段落（伺服器切分的語段）之間加灰色細線，方便閱讀；講者換語言時另有 🌐 標注</small></span>
+      </label>
+    </div>
+
+    <div class="dialog-actions">
+      <button id="settings-close">取消</button>
+      <button id="settings-save" class="primary">儲存</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 常用句庫 ============ -->
+  <dialog id="phrasebook">
+    <h2>常用句</h2>
+    <p class="pb-hint">對話中按中控列的 ☆ 收藏上一句。有 ▶ 的句子存有外語語音，點擊立刻播放（不用連線、不耗額度）。</p>
+    <label class="field checkbox"><input type="checkbox" id="pb-all" /> 顯示全部語言（目前只列當前外語）</label>
+    <div id="pb-list"></div>
+    <div class="dialog-actions">
+      <button id="pb-close" class="primary">關閉</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 語音記錄（斷音除錯） ============ -->
+  <dialog id="voicelog">
+    <h2>語音記錄</h2>
+    <p class="vlog-hint">最近 12 輪翻譯語音，每一條的「網路到達」與「實際播放」時間軸。
+      紅色＝播放缺口；「開播後才到」＝該條沒趕上暫存，是尾段斷音的來源。</p>
+    <div id="vlog-list"></div>
+    <div class="dialog-actions">
+      <button id="vlog-close" class="primary">關閉</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="hidden" role="status"></div>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>
