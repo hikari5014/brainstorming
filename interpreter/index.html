@@ -27,6 +27,8 @@
     <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.8v3 M12 18.2v3 M2.8 12h3 M18.2 12h3 M5.5 5.5l2.1 2.1 M16.4 16.4l2.1 2.1 M18.5 5.5l-2.1 2.1 M7.6 16.4l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-swap" viewBox="0 0 24 24"><path d="M4 8h13l-3-3 M20 16H7l3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-replay" viewBox="0 0 24 24"><path d="M12 5a7 7 0 1 1-6.33 4.02" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5.2 3.2v5.4h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3.6l2.5 5.1 5.6 0.8-4 4 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-4 5.6-0.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z M4 20.5V5.5 M20 18v3H6.5A2.5 2.5 0 0 1 4 18.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 8h8 M8 11.5h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
     <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
     <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4 M8 8l4-4 4 4 M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11 M8 11l4 4 4-4 M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
@@ -61,6 +63,9 @@
         <span id="start-label">開始對話</span>
       </button>
       <p id="start-note">按下才會開啟麥克風與連線</p>
+      <button id="home-phrases" aria-label="常用句">
+        <svg width="18" height="18"><use href="#i-book"/></svg>常用句
+      </button>
     </div>
   </div>
 
@@ -90,6 +95,8 @@
     <!-- 中控列（不旋轉，兩人共用） -->
     <div id="controlbar">
       <button id="open-transcript" class="icon-btn" aria-label="逐字稿紀錄"><svg width="22" height="22"><use href="#i-doc"/></svg></button>
+      <button id="save-phrase" class="icon-btn" aria-label="收藏上一句"><svg width="22" height="22"><use href="#i-star"/></svg></button>
+      <button id="open-phrases" class="icon-btn" aria-label="常用句"><svg width="22" height="22"><use href="#i-book"/></svg></button>
       <button id="pair" aria-label="語言設定">
         <span>中文</span><svg width="16" height="16"><use href="#i-swap"/></svg><span id="pair-foreign">English</span>
       </button>
@@ -228,6 +235,17 @@
     <div class="dialog-actions">
       <button id="settings-close">取消</button>
       <button id="settings-save" class="primary">儲存</button>
+    </div>
+  </dialog>
+
+  <!-- ============ 常用句庫 ============ -->
+  <dialog id="phrasebook">
+    <h2>常用句</h2>
+    <p class="pb-hint">對話中按中控列的 ☆ 收藏上一句。有 ▶ 的句子存有外語語音，點擊立刻播放（不用連線、不耗額度）。</p>
+    <label class="field checkbox"><input type="checkbox" id="pb-all" /> 顯示全部語言（目前只列當前外語）</label>
+    <div id="pb-list"></div>
+    <div class="dialog-actions">
+      <button id="pb-close" class="primary">關閉</button>
     </div>
   </dialog>
 

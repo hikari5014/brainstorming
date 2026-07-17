@@ -411,6 +411,47 @@ try {
   await page.waitForTimeout(800);
   if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
 
+  /* ---- v14：常用句庫 ---- */
+  check('首頁常用句入口', await page.locator('#home-phrases').isVisible());
+  await page.click('#home-phrases');
+  await page.waitForSelector('#phrasebook[open]');
+  check('句庫空狀態提示', (await page.locator('#pb-list').textContent()).includes('還沒有收藏'));
+  await page.click('#pb-close');
+
+  await page.click('#start-btn');
+  await page.waitForSelector('#view-call:not(.hidden)');
+  await hold('#hold-me', 1500);
+  await page.waitForFunction(() => window.__kouyiji.audio.voiceHeld === false, null, { timeout: 8000 });
+  await page.waitForFunction(() => !window.__kouyiji.audio.isSpeaking, null, { timeout: 6000 });
+  await page.click('#save-phrase');
+  await page.waitForTimeout(500);
+  const savedPhrase = await page.evaluate(async () => {
+    const all = await window.__kouyiji.store.allPhrases();
+    const p = all[all.length - 1];
+    return p ? { n: all.length, lang: p.lang, hasPcm: Boolean(p.pcm), secs: p.secs, hasDst: p.dst.length > 0 } : null;
+  });
+  check('☆ 收藏上一句（中文＋外語＋語音）',
+    Boolean(savedPhrase && savedPhrase.hasPcm && savedPhrase.secs > 0 && savedPhrase.lang === 'en' && savedPhrase.hasDst),
+    JSON.stringify(savedPhrase));
+
+  await page.click('#open-phrases');
+  await page.waitForSelector('#phrasebook[open]');
+  check('句庫列出收藏（含播放鈕）', (await page.locator('.pb-row .pb-play:not([disabled])').count()) >= 1);
+  await page.click('.pb-row .pb-play');
+  check('點擊立即播放（本機語音、零額度）', await page.evaluate(() => window.__kouyiji.audio.isSpeaking));
+  const pbDst = await page.evaluate(() => document.querySelector('#theirs-dst').textContent);
+  check('播放同時推上對方側大字', pbDst.length > 0, pbDst.slice(0, 40));
+  await page.click('.pb-row .pb-pin');
+  await page.waitForTimeout(300);
+  check('置頂生效', await page.evaluate(() => document.querySelector('.pb-row').classList.contains('pinned')));
+  await page.click('.pb-row .pb-del'); // confirm 由 dialog handler 自動接受
+  await page.waitForTimeout(300);
+  check('刪除生效', (await page.locator('.pb-row').count()) === 0);
+  await page.click('#pb-close');
+  await page.click('#end-call');
+  await page.waitForTimeout(800);
+  if (await page.locator('#transcript').evaluate((d) => d.open)) await page.click('#tr-close');
+
   // 首次導引
   const fresh = await browser.newContext({ permissions: ['microphone'] });
   const freshPage = await fresh.newPage();

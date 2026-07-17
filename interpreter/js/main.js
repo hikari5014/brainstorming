@@ -27,6 +27,7 @@ const state = {
   awaitVoice: null, // {tag, releasedAt, lastTextAt, lastAudioAt, poll} 等翻譯完整才播語音
   manualWait: null, // 手動開播模式：放開後等使用者按「▶ 播放」的 tag
   replay: { chunks: [], secs: 0 }, // 上一句外語翻譯語音的本機留存（對方沒聽清楚可重播）
+  lastSavable: null, // 最後一輪完成的內容 {side, src, dst, lang}（☆ 收藏用）
   lastAudioAt: { toForeign: 0, toMine: 0 }, // 各連線最後收到語音資料的時刻（回收連線的安全鎖）
   sessionSeq: 0, // 連線建立次數（測試/除錯用）
   listening: false,
@@ -80,6 +81,13 @@ function finalizeTurn(tag) {
   if (t.src.trim() || t.dst.trim()) {
     t.saved = true;
     state.callHadTurns = true;
+    // 常用句 ☆ 收藏的對象：一律以「中文 / 外語」正規化存放
+    state.lastSavable = {
+      side: t.side,
+      zh: (t.side === 'me' ? t.src : t.dst).trim(),
+      fx: (t.side === 'me' ? t.dst : t.src).trim(),
+      lang: settings.foreignLang,
+    };
     store.add({ ts: t.ts, mode: t.mode, side: t.side, srcLang: t.srcLang, dstLang: t.dstLang, src: t.src.trim(), dst: t.dst.trim() });
   }
   state.turns[tag] = null;
@@ -539,6 +547,121 @@ function replayLast() {
   state.lastActivity = Date.now();
 }
 
+/* ---------- 常用句庫：收藏＝中文＋外語＋語音（本機），點擊即播零額度 ---------- */
+
+async function savePhraseLast() {
+  const t = state.lastSavable;
+  if (!t || (!t.zh && !t.fx)) { toast('還沒有可收藏的句子。'); return; }
+  let pcm = null;
+  let secs = 0;
+  // 我說的句子：把重播緩衝（已裁靜音）一併存下 → 之後點擊立刻播外語語音
+  if (t.side === 'me' && state.replay.secs > 0) {
+    const trimmed = trimSilence(state.replay.chunks);
+    const capped = trimmed.subarray(0, Math.min(trimmed.length, 30 * 24000)); // 單句上限 30 秒
+    pcm = capped.slice().buffer;
+    secs = capped.length / 24000;
+  }
+  const id = await store.addPhrase({
+    ts: Date.now(), lang: t.lang, src: t.zh, dst: t.fx,
+    pcm, secs, uses: 0, lastUsed: 0, pinned: false,
+  });
+  toast(id != null ? (pcm ? '⭐ 已收藏（含外語語音）。' : '⭐ 已收藏（僅文字）。') : '收藏失敗。');
+}
+
+// 非通話時的輕量播放 context（通話中直接用主引擎）
+let oneShotCtx = null;
+function playOneShot(int16) {
+  try {
+    oneShotCtx = oneShotCtx || new AudioContext();
+    oneShotCtx.resume().catch(() => {});
+    const buf = oneShotCtx.createBuffer(1, int16.length, 24000);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < int16.length; i++) ch[i] = int16[i] / 0x8000;
+    const src = oneShotCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(oneShotCtx.destination);
+    src.start();
+  } catch { /* 無法播放就只顯示文字 */ }
+}
+
+function displayPhrase(p) {
+  if (state.phase !== 'call') return;
+  // 推上對方側大字（倒轉朝向對方），對方邊聽邊讀
+  $('#theirs-dst').textContent = p.dst;
+  $('#theirs-src').textContent = p.src;
+  $('#theirs-src-row').classList.add('show');
+}
+
+function playPhrase(p) {
+  if (p.pcm) {
+    const int16 = new Int16Array(p.pcm);
+    if (audio.ready) {
+      audio.kick();
+      audio.stopPlayback();
+      audio.scheduleInt16(int16);
+    } else {
+      playOneShot(int16);
+    }
+  }
+  displayPhrase(p);
+  state.lastActivity = Date.now();
+  store.updatePhrase(p.id, { uses: (p.uses || 0) + 1, lastUsed: Date.now() });
+}
+
+async function renderPhrasebook() {
+  const all = await store.allPhrases();
+  const showAll = $('#pb-all').checked;
+  const list = all.filter((p) => showAll || p.lang === settings.foreignLang);
+  list.sort((a, b) => (Number(b.pinned) - Number(a.pinned)) || (b.lastUsed - a.lastUsed) || (b.ts - a.ts));
+  const box = $('#pb-list');
+  box.innerHTML = '';
+  if (list.length === 0) {
+    box.innerHTML = '<p class="tr-empty">還沒有收藏。對話中按中控列的 ☆ 把上一句存起來。</p>';
+    return;
+  }
+  for (const p of list) {
+    const row = document.createElement('div');
+    row.className = `pb-row${p.pinned ? ' pinned' : ''}`;
+
+    const play = document.createElement('button');
+    play.className = 'pb-play';
+    play.setAttribute('aria-label', p.pcm ? '播放外語語音' : '無語音');
+    play.textContent = '▶';
+    if (!p.pcm) { play.disabled = true; play.textContent = '·'; }
+    play.addEventListener('click', () => { playPhrase(p); });
+
+    const text = document.createElement('div');
+    text.className = 'pb-text';
+    const flag = langOf(p.lang);
+    text.innerHTML = '<div class="pb-dst"></div><div class="pb-src"></div>';
+    text.querySelector('.pb-dst').textContent = p.dst;
+    text.querySelector('.pb-src').textContent = `${flag.flag} ${p.src}${p.pcm ? ` · ${p.secs.toFixed(1)}s` : ''}`;
+    text.addEventListener('click', () => { displayPhrase(p); if (state.phase === 'call') $('#phrasebook').close(); });
+
+    const pin = document.createElement('button');
+    pin.className = 'pb-pin';
+    pin.setAttribute('aria-label', p.pinned ? '取消置頂' : '置頂');
+    pin.textContent = p.pinned ? '★' : '☆';
+    pin.addEventListener('click', async () => { await store.updatePhrase(p.id, { pinned: !p.pinned }); renderPhrasebook(); });
+
+    const del = document.createElement('button');
+    del.className = 'pb-del';
+    del.setAttribute('aria-label', '刪除');
+    del.textContent = '✕';
+    del.addEventListener('click', async () => {
+      if (confirm(`刪除「${p.src}」？`)) { await store.deletePhrase(p.id); renderPhrasebook(); }
+    });
+
+    row.append(play, text, pin, del);
+    box.appendChild(row);
+  }
+}
+
+async function openPhrasebook() {
+  await renderPhrasebook();
+  $('#phrasebook').showModal();
+}
+
 /* ---------- 語音接收指示器（即時看到「下載是否完全」，可開關） ---------- */
 // 每 250ms 依語音記錄（vlog.cur）更新：收到幾條/幾秒、仍在接收還是已靜止幾秒。
 // 讓使用者親眼確認斷音是「語音還沒下載完」（伺服器端）還是別的原因，
@@ -864,6 +987,11 @@ function bindHome() {
   });
   $('#manual-play').addEventListener('click', manualPlayNow);
   $('#replay-them').addEventListener('click', replayLast);
+  $('#save-phrase').addEventListener('click', savePhraseLast);
+  $('#open-phrases').addEventListener('click', openPhrasebook);
+  $('#home-phrases').addEventListener('click', openPhrasebook);
+  $('#pb-close').addEventListener('click', () => $('#phrasebook').close());
+  $('#pb-all').addEventListener('change', renderPhrasebook);
 }
 
 /* ---------- 啟動 ---------- */
